@@ -7,7 +7,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    base: "/Tour-Budget/",
+    base: "/Tour-Manager/",
     plugins: [
       react(), 
       tailwindcss(),
