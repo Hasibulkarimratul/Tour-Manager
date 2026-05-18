@@ -21,7 +21,7 @@ export function useFirebaseAuth() {
         } catch (error: any) {
           console.error("Anonymous authentication failed", error);
           if (error?.code === 'auth/configuration-not-found' || error?.code === 'auth/admin-restricted-operation') {
-            setAuthError("Please enable 'Anonymous' Sign-in in your Firebase Console (Authentication > Sign-in method).");
+            setAuthError("Auth is blocked or not configured.");
           } else {
             setAuthError(error.message || "Failed to authenticate.");
           }
@@ -64,10 +64,12 @@ export function useFirebaseAuth() {
               </p>
               <p className="text-xs text-[var(--text-muted)] p-3 bg-red-500/10 rounded-xl border border-red-500/20">
                 1. Go to console.firebase.google.com<br/>
-                2. Open your project.<br/>
-                3. Go to <b>Authentication</b> &rarr; <b>Sign-in method</b> tab.<br/>
-                4. Click <b>Add new provider</b> &rarr; <b>Anonymous</b>.<br/>
-                5. Enable it and save. Refresh this page.
+                2. Open the project <b>gen-lang-client-0510267265</b>.<br/>
+                3. Go to <b>Authentication</b> &rarr; <b>Settings</b> &rarr; <b>User actions</b>.<br/>
+                4. Ensure <b>"Enable create (sign-up)"</b> is checked.<br/>
+                5. Go to <b>Authentication</b> &rarr; <b>Sign-in method</b> tab.<br/>
+                6. Ensure <b>Anonymous</b> is enabled.<br/>
+                7. Save changes and refresh this page.
               </p>
             </>
           ) : (
