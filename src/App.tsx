@@ -36,7 +36,6 @@ import {
   MessageCircle,
   Info,
 } from "lucide-react";
-import localforage from "localforage";
 import React, {
   useRef,
   useState,
@@ -46,6 +45,24 @@ import React, {
   type ChangeEvent,
 } from "react";
 import { useFirebaseAuth } from './useFirebaseAuth';
+import { db } from './firebase';
+import { collection, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, query, where, deleteField } from 'firebase/firestore';
+
+const stripUndefined = (obj: any) => {
+  if (Array.isArray(obj)) {
+    obj.forEach(stripUndefined);
+  } else if (typeof obj === 'object' && obj !== null) {
+    Object.keys(obj).forEach(key => {
+      if (obj[key] === undefined) {
+        delete obj[key];
+      } else {
+        stripUndefined(obj[key]);
+      }
+    });
+  }
+  return obj;
+};
+
 import {
   PieChart,
   Pie,
@@ -159,6 +176,8 @@ function MemberCard({
   activeTour,
   onEdit,
   onDelete,
+  isAdmin,
+  isMemberAdmin,
 }: {
   key?: React.Key;
   m: Member;
@@ -166,6 +185,8 @@ function MemberCard({
   activeTour: Tour;
   onEdit: (m: Member) => void;
   onDelete: (id: string, e?: React.MouseEvent) => void;
+  isAdmin: boolean;
+  isMemberAdmin: boolean;
 }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const hasExpenses = activeTour.expenses.some(
@@ -192,11 +213,16 @@ function MemberCard({
         id={`member-${m.id}`}
         className={`item-card rounded-2xl p-4 flex justify-between items-center group hover:border-purple-500/30 transition-all cursor-pointer relative overflow-hidden ${highlightId === m.id ? "ring-2 ring-purple-500 bg-purple-500/10 scale-105" : ""}`}
       >
-        <div className="flex-1 truncate relative z-10" onClick={() => onEdit(m)}>
+        <div className="flex-1 truncate relative z-10" onClick={() => isAdmin && onEdit(m)}>
           <div className="flex items-center gap-1.5">
             <p className="font-black text-xs truncate uppercase tracking-tighter">
               {m.name}
             </p>
+            {isMemberAdmin && (
+              <span className="ml-2 text-[8px] font-black uppercase tracking-widest bg-purple-500/20 text-purple-600 px-1.5 py-0.5 rounded-full">
+                Admin
+              </span>
+            )}
             {(m.address || m.occupation || m.nid) && (
               <div
                 className="w-1 h-1 rounded-full bg-purple-500"
@@ -209,7 +235,7 @@ function MemberCard({
           </p>
         </div>
         <div className="flex items-center gap-1.5 relative z-10 sm:opacity-0 sm:group-hover:opacity-100 transition-all scale-90 group-hover:scale-100">
-          <button
+          {isAdmin && (<button
             onClick={(e) => {
               e.stopPropagation();
               confirmDelete(e);
@@ -217,7 +243,7 @@ function MemberCard({
             className="p-2 rounded-xl transition-all border bg-[var(--bg-main)] text-[var(--text-muted)] hover:text-red-500 border-transparent hover:border-red-500/20"
           >
             <Trash2 size={14} />
-          </button>
+          </button>)}
         </div>
         <div className="absolute inset-0 bg-red-500/0 active:bg-red-500/5 transition-colors pointer-events-none" />
       </div>
@@ -270,12 +296,14 @@ function TourCard({
   highlightId,
   onClick,
   onDelete,
+  isAdmin,
 }: {
   key?: React.Key;
   tour: Tour;
   highlightId: string | null;
   onClick: () => void;
   onDelete: (e?: React.MouseEvent) => void;
+  isAdmin: boolean;
 }) {
   const isHighlighted = highlightId === tour.id;
 
@@ -302,7 +330,7 @@ function TourCard({
         <h3
           className={`text-xl font-black transition-colors uppercase tracking-tight ${isConfirmingDelete ? "text-red-500" : "group-hover:text-purple-500"}`}
         >
-          {isConfirmingDelete ? "Confirm Delete?" : tour.name}
+          {isConfirmingDelete ? (isAdmin ? "Confirm Delete?" : "Confirm Leave?") : tour.name}
         </h3>
         <div
           className={`flex gap-4 mt-1 text-xs font-bold ${isConfirmingDelete ? "text-red-400" : "text-[var(--text-muted)]"}`}
@@ -323,7 +351,7 @@ function TourCard({
         className={`p-3 transition-colors opacity-100 z-10 rounded-full ${isConfirmingDelete ? "bg-red-500 text-white" : "text-[var(--text-muted)] hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"}`}
         id={`delete-tour-${tour.id}`}
       >
-        <Trash2 size={18} />
+        {isAdmin ? <Trash2 size={18} /> : <span className="text-[10px] uppercase font-black tracking-widest bg-red-500/10 text-red-500 px-2 py-1 rounded-lg hover:bg-red-500 hover:text-white transition-colors">Leave</span>}
       </button>
       <div className="absolute inset-0 bg-red-500/0 active:bg-red-500/10 transition-colors pointer-events-none" />
     </div>
@@ -394,7 +422,7 @@ function WhatsAppGroupModal({
              <div className="space-y-2 border border-[var(--border-color)] p-2 rounded-[24px] bg-[var(--bg-main)] max-h-64 overflow-y-auto">
                {activeTour.members.map(m => {
                  const num = (m.whatsappNumber || m.phoneNumber || "").replace(/[^\d+]/g, '');
-                 const message = encodeURIComponent(`Hi ${m.name},\n\nJoin our trip group for "${activeTour.name}"!\n\nClick here to join: ${link}`);
+                 const message = encodeURIComponent(`Hi ${m.name},\n\nJoin our trip group for "${activeTour.name}"!\n\nTrip Join Code (App): ${activeTour.id}\nClick here to join WhatsApp: ${link}`);
                  const waUrl = `https://wa.me/${num}?text=${message}`;
 
                  return (
@@ -439,9 +467,11 @@ function WhatsAppGroupModal({
 
 
 export default function App() {
-  const { AuthModal } = useFirebaseAuth();
+  const { user, displayName, AuthModal } = useFirebaseAuth();
   // --- State ---
-  const [activeTourId, setActiveTourId] = useState<string | null>(null);
+    const [joinTourId, setJoinTourId] = useState("");
+    const [activeTourId, setActiveTourId] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<
     "members" | "expenses" | "balances" | "insights" | "media"
   >("expenses");
@@ -470,50 +500,32 @@ export default function App() {
   };
 
   const [tours, setTours] = useState<Tour[]>([]);
-  const [trashTours, setTrashTours] = useState<Tour[]>([]);
+    const [trashTours, setTrashTours] = useState<Tour[]>([]);
   const isOnline = useOnlineStatus();
 
   useEffect(() => {
-    // Initialization with localforage
-    const initData = async () => {
-      try {
-        let saved = await localforage.getItem<Tour[]>('tourvault_tours');
-        if (!saved) {
-           // fallback to localstorage for backwards compatibility one time
-           const old = localStorage.getItem("tourvault_tours");
-           if (old) {
-             saved = JSON.parse(old);
-             localStorage.removeItem("tourvault_tours"); // clean up
-           }
-        }
-        if (saved) {
-           setTours(saved.map((t: any) => ({
-            ...t,
-            members: Array.isArray(t.members) ? t.members : [],
-            expenses: Array.isArray(t.expenses) ? t.expenses : [],
-           })));
-        }
-
-        const savedTrash = await localforage.getItem<Tour[]>('tourvault_trash');
-        if (savedTrash) {
-           // auto clean trash older than 30 days
-           const now = Date.now();
-           const validTrash = savedTrash.filter(t => {
-              if (!t.deletedAt) return false;
-              const ageDays = (now - t.deletedAt) / (1000 * 60 * 60 * 24);
-              return ageDays <= 30;
-           });
-           setTrashTours(validTrash);
-           if (validTrash.length !== savedTrash.length) {
-              localforage.setItem('tourvault_trash', validTrash);
-           }
-        }
-      } catch (e) {
-         console.error('Failed to init localforage', e);
-      }
-    };
-    initData();
-  }, []);
+    if (!user) return;
+    const q = query(collection(db, 'tours'), where('adminId', '==', user.uid));
+    const unsub = onSnapshot(q, (snap) => {
+       const allDbTours = snap.docs.map(docSnap => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+          expenses: [],
+          members: docSnap.data().members || []
+       } as Tour));
+       const userValidTours = allDbTours.filter(t => !t.deletedAt);
+       const userTrashTours = allDbTours.filter(t => t.deletedAt);
+       
+       setTours(prev => {
+          const joinedTours = prev.filter(t => t.adminId !== user.uid);
+          const joinedMap = new Map(joinedTours.map(t => [t.id, t]));
+          userValidTours.forEach(t => joinedMap.set(t.id, t));
+          return Array.from(joinedMap.values());
+       });
+       setTrashTours(userTrashTours);
+    });
+    return () => unsub();
+  }, [user]);
   const [history, setHistory] = useState<
     {
       tours: Tour[];
@@ -531,6 +543,24 @@ export default function App() {
     }[]
   >([]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeTourId) return;
+    const unsubTour = onSnapshot(doc(db, 'tours', activeTourId), (docSnap) => {
+        if (docSnap.exists()) {
+            const currentData = docSnap.data();
+            setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData } : t));
+        } else {
+            setActiveTourId(null);
+            setTours(prev => prev.filter(t => t.id !== activeTourId));
+        }
+    });
+    const unsubExpenses = onSnapshot(collection(db, 'tours', activeTourId, 'expenses'), (snap) => {
+        const exps = snap.docs.map(d => d.data() as Expense);
+        setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, expenses: exps } : t));
+    });
+    return () => { unsubTour(); unsubExpenses(); };
+  }, [activeTourId]);
 
   useEffect(() => {
     if (highlightId) {
@@ -637,14 +667,8 @@ export default function App() {
   });
 
   // --- Persistence & Theme ---
-  useEffect(() => {
-    localforage.setItem("tourvault_tours", tours);
-  }, [tours]);
-
-  useEffect(() => {
-    localforage.setItem("tourvault_trash", trashTours);
-  }, [trashTours]);
-
+  
+  
   useEffect(() => {
     localStorage.setItem("tourvault_theme", theme);
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -658,7 +682,8 @@ export default function App() {
   }, [commonEvents]);
 
   // --- Computed ---
-  const activeTour = tours.find((t) => t.id === activeTourId);
+  const activeTour = tours.find(t => t.id === activeTourId);
+  const isAdmin = activeTour ? activeTour.adminId === user?.uid : false;
   const balances = activeTour
     ? calculateBalances(activeTour.members, activeTour.expenses)
     : [];
@@ -672,60 +697,86 @@ export default function App() {
     }
   };
 
-  const handleAddTour = (name: string, date: string, country: string, town: string, currency: string) => {
+  const handleAddTour = async (name: string, date: string, country: string, town: string, currency: string) => {
+    if (!user) {
+      alert("Authentication required. Please refresh and ensure you're signed in.");
+      return;
+    }
+    
+    let id = Array.from({length: 6}, () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Math.floor(Math.random()*36)]).join('');
+    let isUnique = false;
+    while (!isUnique) {
+      const docRef = doc(db, 'tours', id);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        id = Array.from({length: 6}, () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Math.floor(Math.random()*36)]).join('');
+      } else {
+        isUnique = true;
+      }
+    }
 
-    const id = crypto.randomUUID();
-    pushHistory({ tourId: null, highlightId: id });
     const newTour: Tour = {
-      id: "trip-" + Date.now().toString(),
-      name,
-      date,
-      country,
-      town,
-      currency,
-      members: [],
-      expenses: [],
+        id,
+        name,
+        date,
+        country,
+        town,
+        currency,
+        members: [{ id: user.uid, name: displayName || 'Admin', phoneNumber: '', address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: '' }],
+        expenses: [],
+        adminId: user.uid
     };
-    setTours([...tours, newTour]);
-    setShowAddTour(false);
-    setActiveTourId(newTour.id);
+
+    stripUndefined(newTour);
+
+    try {
+      await setDoc(doc(db, 'tours', id), newTour);
+      setActiveTourId(id);
+      setShowAddTour(false);
+    } catch (error: any) {
+      console.error("Error creating tour:", error);
+      alert("Failed to create tour. See console for details.");
+    }
   };
 
-  const handleDeleteTour = (id: string, e?: React.MouseEvent) => {
+  const handleDeleteTour = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     const tourToDelete = tours.find(t => t.id === id);
-    if (tourToDelete) {
-       setTrashTours(prevTrash => [...prevTrash, { ...tourToDelete, deletedAt: Date.now() }]);
+    if (!tourToDelete) return;
+
+    if (tourToDelete.adminId === user?.uid) {
+        await updateDoc(doc(db, 'tours', id), { deletedAt: Date.now() });
+    } else {
+        setTours(prev => prev.filter(t => t.id !== id));
     }
-    pushHistory({ tourId: null });
-    setTours(prevTours => prevTours.filter((t) => t.id !== id));
     if (activeTourId === id) setActiveTourId(null);
   };
 
-  const handleRestoreTour = (id: string) => {
-    const tourToRestore = trashTours.find(t => t.id === id);
-    if (tourToRestore) {
-      const restored = { ...tourToRestore };
-      delete restored.deletedAt;
-      setTours(prevTours => [...prevTours, restored]);
-      setTrashTours(prevTrash => prevTrash.filter(t => t.id !== id));
-    }
+  const handleRestoreTour = async (id: string) => {
+    if (!user) return;
+    await updateDoc(doc(db, 'tours', id), { deletedAt: deleteField() });
   };
 
-  const handlePermanentDeleteTour = (id: string) => {
-    setTrashTours(trashTours.filter(t => t.id !== id));
+  const handlePermanentDeleteTour = async (id: string) => {
+    if (!user) return;
+    await deleteDoc(doc(db, 'tours', id));
   };
 
-  const updateActiveTour = (
+  const updateActiveTour = async (
     updated: Tour,
     context?: { tab?: string; highlightId?: string },
   ) => {
-    pushHistory({
-      tourId: updated.id,
-      tab: context?.tab || activeTab,
-      highlightId: context?.highlightId,
-    });
-    setTours(prevTours => prevTours.map((t) => (t.id === updated.id ? updated : t)));
+    if (!activeTourId || activeTourId !== updated.id) return;
+    if (updated.adminId === user?.uid) {
+       const tourDocRef = doc(db, 'tours', updated.id);
+       const { expenses, ...tourData } = updated;
+       
+       stripUndefined(tourData);
+
+       await updateDoc(tourDocRef, tourData);
+       if (context?.tab) setActiveTab(context.tab as any);
+       if (context?.highlightId) setHighlightId(context.highlightId);
+    }
   };
 
   const handleExportCSV = () => {
@@ -762,21 +813,29 @@ export default function App() {
     );
   };
 
-  const handleSaveExpense = (expense: Expense) => {
+  const handleSaveExpense = async (expense: Expense) => {
     if (!activeTour) return;
-    const exists = activeTour.expenses.some((e) => e.id === expense.id);
-    const newExpenses = exists
-      ? activeTour.expenses.map((e) => (e.id === expense.id ? expense : e))
-      : [...activeTour.expenses, expense];
+    const id = expense.id || doc(collection(db, 'tours', activeTour.id, 'expenses')).id;
+    const newExp = {
+         ...expense,
+         id,
+         creatorId: expense.creatorId || user?.uid,
+         creatorName: expense.creatorName || displayName
+    };
 
-    updateActiveTour(
-      {
-        ...activeTour,
-        expenses: newExpenses,
-      },
-      { tab: "expenses", highlightId: expense.id },
-    );
+    stripUndefined(newExp);
+
+    await setDoc(doc(db, 'tours', activeTour.id, 'expenses', id), newExp);
+    setActiveTab("expenses");
+    setHighlightId(newExp.id);
     setShowExpenseForm(null);
+  };
+
+  const handleDeleteExpense = async (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!activeTour) return;
+    await deleteDoc(doc(db, 'tours', activeTour.id, 'expenses', id));
+    setActiveTab("expenses");
   };
 
   const handleQuickSettle = (s: Transaction) => {
@@ -859,6 +918,38 @@ export default function App() {
             </header>
 
             <div className="space-y-4">
+              <div className="flex gap-2 mb-6">
+                <input 
+                  type="text" 
+                  placeholder="JOIN CLOUD TOUR (6-CHAR ID)" 
+                  value={joinTourId} 
+                  onChange={e => setJoinTourId(e.target.value.toUpperCase())}
+                  className="flex-1 bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 py-3 font-mono font-bold outline-none uppercase text-center tracking-widest placeholder:opacity-50"
+                  maxLength={6}
+                />
+                <button 
+                  onClick={async () => {
+                    if (joinTourId.length === 6) {
+                      const docSnap = await getDoc(doc(db, 'tours', joinTourId));
+                      if (docSnap.exists()) {
+                        const cloudTour = docSnap.data() as Tour;
+                                                if (!tours.find(t => t.id === cloudTour.id)) {
+                          setTours([...tours, cloudTour]);
+                        }
+                        setActiveTourId(joinTourId);
+                      } else {
+                        alert("Invalid Join Code! No trip found with this ID.");
+                        setJoinTourId("");
+                      }
+                    }
+                  }}
+                  disabled={joinTourId.length !== 6}
+                  className="px-6 bg-[var(--bg-main)] hover:bg-slate-200 dark:hover:bg-slate-800 border border-[var(--border-color)] rounded-2xl font-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  JOIN
+                </button>
+              </div>
+
               {tours.length === 0 ? (
                 <div className="text-center py-20 border-2 border-dashed border-slate-300 dark:border-[var(--border-color)] rounded-2xl">
                   <p className="text-[var(--text-muted)] mb-4 font-medium">
@@ -880,19 +971,27 @@ export default function App() {
                     highlightId={highlightId}
                     onClick={() => setActiveTourId(tour.id)}
                     onDelete={(e) => handleDeleteTour(tour.id, e)}
+                    isAdmin={tour.adminId === user?.uid}
                   />
                 ))
               )}
             </div>
 
-            <button
-              onClick={() => setShowAddTour(true)}
-              className="accent-button fixed bottom-8 right-8 w-16 h-16 rounded-full flex items-center justify-center shadow-2xl z-40"
-              id="fab-add-tour"
-            >
-              <Plus size={32} />
-            </button>
+            {true && (
+              <button
+                onClick={() => setShowAddTour(true)}
+                className="accent-button fixed bottom-8 right-8 w-16 h-16 rounded-full flex items-center justify-center shadow-2xl z-40"
+                id="fab-add-tour"
+              >
+                <Plus size={32} />
+              </button>
+            )}
           </motion.div>
+        ) : !activeTour ? (
+          <div className="min-h-screen flex flex-col items-center justify-center text-purple-500 font-black uppercase tracking-widest text-lg animate-pulse gap-4">
+             <div className="w-8 h-8 rounded-full border-4 border-purple-500 border-t-transparent animate-spin"></div>
+             Syncing...
+          </div>
         ) : (
           <motion.div
             key="dashboard"
@@ -964,20 +1063,34 @@ export default function App() {
                     {activeTour?.name}
                   </h1>
                   <div className="flex items-center gap-3 mt-2 flex-wrap">
+                    {true && (
+                      <div 
+                        onClick={() => {
+                          if (activeTour?.id) {
+                            navigator.clipboard.writeText(activeTour.id);
+                            alert("Join Code copied to clipboard!");
+                          }
+                        }}
+                        className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[#25D366] bg-[#25D366]/10 px-2 py-1.5 rounded-md border border-[#25D366]/20 select-all cursor-pointer" title="Copy to share">
+                         JOIN CODE: {activeTour?.id}
+                      </div>
+                    )}
                     {(activeTour?.town || activeTour?.country) && (
                       <div className="flex items-center gap-1 text-[10px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest bg-[var(--bg-surface)] px-2 py-1 rounded-md border border-[var(--border-color)] truncate max-w-[200px]">
                         <MapPin size={12} className="shrink-0" />
                         <span className="truncate">{activeTour.town}{activeTour.town && activeTour.country ? ', ' : ''}{activeTour.country}</span>
                       </div>
                     )}
-                    <button 
+                    {isAdmin ? (<button 
                       onClick={() => setShowEditTour(true)}
                       className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-purple-500 bg-purple-500/10 hover:bg-purple-500 hover:text-white transition-colors px-2.5 py-1.5 rounded-md border border-purple-500/20 hover:border-purple-500 shrink-0"
                     >
                       <Settings size={10} />
                       <span>{activeTour?.currency || 'USD'}</span>
                       <ChevronDown size={10} />
-                    </button>
+                    </button>) : (<span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-purple-500 bg-purple-500/10 px-2.5 py-1.5 rounded-md border border-purple-500/20 shrink-0">
+                      <span>{activeTour?.currency || 'USD'}</span>
+                    </span>)}
                   </div>
                 </div>
               </header>
@@ -1025,6 +1138,7 @@ export default function App() {
                   onUpdate={updateActiveTour}
                   highlightId={highlightId}
                   appSettings={appSettings}
+                  isAdmin={isAdmin}
                 />
               )}
               {activeTab === "expenses" && (
@@ -1033,17 +1147,9 @@ export default function App() {
                   highlightId={highlightId}
                   onAdd={() => setShowExpenseForm("new_expense")}
                   onEdit={(exp) => setShowExpenseForm(exp)}
-                  onDelete={(id) =>
-                    updateActiveTour(
-                      {
-                        ...activeTour!,
-                        expenses: activeTour!.expenses.filter(
-                          (e) => e.id !== id,
-                        ),
-                      },
-                      { tab: "expenses" },
-                    )
-                  }
+                  onDelete={handleDeleteExpense}
+                  isAdmin={isAdmin}
+                  currentUserId={user?.uid}
                 />
               )}
               {activeTab === "balances" && (
@@ -1052,6 +1158,7 @@ export default function App() {
                   balances={balances}
                   settlements={settlements}
                   onSettle={handleQuickSettle}
+                  isAdmin={isAdmin}
                 />
               )}
               {activeTab === "insights" && (
@@ -1143,15 +1250,7 @@ export default function App() {
             setCommonEvents={setCommonEvents}
             onClose={() => setShowExpenseForm(null)}
             onSave={handleSaveExpense}
-            onDelete={(id) =>
-              updateActiveTour(
-                {
-                  ...activeTour!,
-                  expenses: activeTour!.expenses.filter((e) => e.id !== id),
-                },
-                { tab: "expenses" },
-              )
-            }
+            onDelete={handleDeleteExpense}
           />
         )}
       </AnimatePresence>
@@ -1177,8 +1276,7 @@ function Calculator({
       try {
         // Simple safety: only allow numbers and basic math operators
         const sanitized = display.replace(/[^-^0-9+*/.]/g, "");
-        // eslint-disable-next-line no-eval
-        const result = eval(sanitized);
+        const result = new Function('return ' + sanitized)();
         setDisplay(Number(result).toFixed(2).replace(/\.00$/, ""));
       } catch {
         setDisplay("Error");
@@ -1198,8 +1296,7 @@ function Calculator({
     ) {
       try {
         const sanitized = display.replace(/[^-^0-9+*/.]/g, "");
-        // eslint-disable-next-line no-eval
-        final = Number(eval(sanitized)).toFixed(2).replace(/\.00$/, "");
+        final = Number(new Function('return ' + sanitized)()).toFixed(2).replace(/\.00$/, "");
       } catch {
         return;
       }
@@ -1734,14 +1831,14 @@ function AddTourModal({
 }: {
   onClose: () => void;
   onSave: (name: string, date: string, country: string, town: string, currency: string) => void;
-  initialTour?: { name: string; date: string; country?: string; town?: string; currency?: string };
+  initialTour?: { name: string; date: string; country?: string; town?: string; currency?: string; };
 }) {
   const [name, setName] = useState(initialTour?.name || "");
   const [date, setDate] = useState(initialTour?.date || "");
   const [country, setCountry] = useState(initialTour?.country || "");
   const [town, setTown] = useState(initialTour?.town || "");
   const [currency, setCurrency] = useState(initialTour?.currency || "USD");
-
+  
   const countryCurrencyMap: Record<string, string> = {
     "Bangladesh": "BDT",
     "United States": "USD",
@@ -1843,6 +1940,9 @@ function AddTourModal({
               <option value="JPY">JPY (¥)</option>
             </select>
           </div>
+          
+          
+
           <div className="flex gap-3 pt-4">
             <button
               id="cancel-add-trip"
@@ -1871,12 +1971,14 @@ function MemberView({
   onUpdate,
   highlightId,
   appSettings,
+  isAdmin,
 }: {
   activeTour: Tour;
   onAdd: (n: string, p: string, a?: string, o?: string, ni?: string, b?: string, w?: string) => void;
   onUpdate: (t: Tour, ctx?: { tab?: string; highlightId?: string }) => void;
   highlightId?: string | null;
   appSettings: AppSettings;
+  isAdmin: boolean;
 }) {
   const [name, setName] = useState("");
   const [phonePrefix, setPhonePrefix] = useState(() => getPhonePrefix(appSettings.region));
@@ -1992,7 +2094,7 @@ function MemberView({
         </button>
       </div>
 
-      <div className="item-card rounded-[32px] p-6 shadow-xl border-purple-500/20">
+      {isAdmin && (<div className="item-card rounded-[32px] p-6 shadow-xl border-purple-500/20">
         <h3 className="text-xs font-bold uppercase tracking-widest text-purple-500 mb-4">
           {editingMemberId ? "Edit Person Details" : "Add Person"}
         </h3>
@@ -2127,7 +2229,7 @@ function MemberView({
             </button>
           </div>
         </div>
-      </div>
+      </div>)}
 
       <div className="space-y-4">
         <div className="flex justify-between items-center px-4 mb-2">
@@ -2168,6 +2270,8 @@ function MemberView({
               activeTour={activeTour}
               onEdit={startEdit}
               onDelete={removeMember}
+              isAdmin={isAdmin}
+              isMemberAdmin={m.id === activeTour.adminId}
             />
           ))}
         </div>
@@ -2182,6 +2286,8 @@ function ExpenseCard({
   activeTour,
   onEdit,
   onDelete,
+  isAdmin,
+  currentUserId,
 }: {
   key?: React.Key;
   exp: Expense;
@@ -2189,6 +2295,8 @@ function ExpenseCard({
   activeTour: Tour;
   onEdit: (e: Expense) => void;
   onDelete: (id: string) => void;
+  isAdmin: boolean;
+  currentUserId?: string;
 }) {
   const isHighlighted = highlightId === exp.id;
   const isValid = isExpenseValid(exp, activeTour.members);
@@ -2204,16 +2312,21 @@ function ExpenseCard({
     <div
       id={`expense-${exp.id}`}
       className={`group relative bg-[var(--bg-surface)] border rounded-[24px] p-5 hover:border-purple-500/50 hover:shadow-xl transition-all cursor-pointer overflow-hidden ${isValid ? "border-[var(--border-color)]" : "border-red-500 border-2 bg-red-500/5"} ${isHighlighted && isValid ? "ring-2 ring-purple-500 scale-102 bg-purple-50/10" : ""}`}
-      onClick={() => onEdit(exp)}
+      onClick={() => (isAdmin || exp.creatorId === currentUserId) && onEdit(exp)}
     >
       {!isValid && (
         <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-xl z-30 uppercase tracking-widest">
           Invalid/Deleted Member
         </div>
       )}
+      {exp.creatorName && isValid && (
+        <div className="absolute top-0 right-0 bg-purple-500/10 text-purple-600 text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-20 uppercase tracking-widest border-b border-l border-purple-500/20">
+          Entry by {exp.creatorName}
+        </div>
+      )}
       
       {/* Delete button on hover */}
-      {isValid && (
+      {isValid && (isAdmin || exp.creatorId === currentUserId) && (
         <button
           onClick={handleDelete}
           className="absolute top-3 right-3 p-2.5 rounded-2xl bg-red-100 dark:bg-red-900/30 text-red-500 hover:bg-red-500 hover:text-white transition-all z-40 opacity-0 group-hover:opacity-100 shadow-sm"
@@ -2270,12 +2383,16 @@ function ExpenseView({
   onEdit,
   onDelete,
   highlightId,
+  isAdmin,
+  currentUserId,
 }: {
   activeTour: Tour;
   onAdd: () => void;
   onEdit: (e: Expense) => void;
   onDelete: (id: string) => void;
   highlightId: string | null;
+  isAdmin: boolean;
+  currentUserId?: string;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMode, setFilterMode] = useState<"actual" | "p2p">("actual");
@@ -2442,6 +2559,8 @@ function ExpenseView({
               activeTour={activeTour}
               onEdit={onEdit}
               onDelete={onDelete}
+              isAdmin={isAdmin}
+              currentUserId={currentUserId}
             />
           ))
         )}
@@ -2787,11 +2906,13 @@ function SettleView({
   balances,
   settlements,
   onSettle,
+  isAdmin,
 }: {
   activeTour: Tour;
   balances: MemberBalance[];
   settlements: Transaction[];
   onSettle: (s: Transaction) => void;
+  isAdmin: boolean;
 }) {
   const totalSpent = activeTour.expenses
     .filter((e) => e.category !== "payment" && isExpenseValid(e, activeTour.members))
@@ -3203,6 +3324,8 @@ function ExpenseFormModal({
       splitMode,
       category,
       voucherImage: imagePreview || expense?.voucherImage,
+      creatorId: expense?.creatorId,
+      creatorName: expense?.creatorName,
     });
   };
 
