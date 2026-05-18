@@ -20,7 +20,6 @@
     "firebase": "^12.13.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
-    "localforage": "^1.10.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.38.0",
     "react": "^19.0.1",
