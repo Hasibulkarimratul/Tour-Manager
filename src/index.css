@@ -1,0 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-slate-950: #0d0c10;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --bg-main: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-item: #ffffff;
+  --border-color: #f1f5f9;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --accent: #8b5cf6;
+  --accent-muted: #f5f3ff;
+  --card-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  color-scheme: light;
+}
+
+.dark {
+  --bg-main: #020617;
+  --bg-surface: #0f172a;
+  --bg-item: #0f172a;
+  --border-color: #1e293b;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent: #a78bfa;
+  --accent-muted: #1e1b4b;
+  --card-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.2), 0 2px 4px -2px rgb(0 0 0 / 0.2);
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  @apply font-sans transition-colors duration-500 overflow-x-hidden antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.item-card {
+  background-color: var(--bg-item);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-shadow);
+  border-radius: 32px;
+  @apply transition-all duration-300 overflow-hidden relative;
+}
+
+.item-card:hover {
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.05), 0 8px 10px -6px rgb(0 0 0 / 0.05);
+  @apply border-purple-500/10;
+}
+
+.dark .item-card:hover {
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.3);
+}
+
+.input-field {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  @apply rounded-2xl px-6 py-4 outline-none focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 transition-all font-medium;
+}
+
+.secondary-button {
+  @apply px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 border border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:border-purple-500/30 hover:text-purple-500;
+}
+
+.accent-button {
+  @apply px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 bg-purple-500 text-white shadow-lg shadow-purple-500/20 hover:bg-purple-400;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 dark:bg-slate-800 rounded-full;
+}
+
+/* Modal animation backdrop */
+.modal-overlay {
+  @apply fixed inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-xl z-50 flex items-center justify-center p-4;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+
+    function isValidPhoto(data) {
+      return data.keys().hasAll(['tourId', 'url', 'uploadedAt', 'ownerId']) 
+        && data.tourId is string && data.tourId.size() <= 128
+        && data.url is string && data.url.size() <= 2048
+        && data.uploadedAt is number
+        && data.ownerId == request.auth.uid;
+    }
+
+    function isValidGpsPing(data) {
+      return data.keys().hasAll(['tourId', 'lat', 'lng', 'timestamp', 'ownerId']) 
+        && data.tourId is string && data.tourId.size() <= 128
+        && data.lat is number
+        && data.lng is number
+        && data.timestamp is number
+        && data.ownerId == request.auth.uid;
+    }
+
+    match /tours/{tourId} {
+      match /photos/{photoId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(tourId) && isValidId(photoId) && isValidPhoto(incoming());
+        allow delete: if isSignedIn() && existing().ownerId == request.auth.uid;
+      }
+      match /pings/{pingId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidId(tourId) && isValidId(pingId) && isValidGpsPing(incoming());
+      }
+    }
+  }
+}
