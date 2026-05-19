@@ -37,6 +37,18 @@ body {
   color: var(--text-main);
   @apply font-sans transition-colors duration-500 overflow-x-hidden antialiased;
   -webkit-tap-highlight-color: transparent;
+  
+  /* Disables text selection and the native magnifying glass/search popups */
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Re-enables text selection ONLY inside input fields so typing doesn't break */
+input, textarea, select {
+  -webkit-user-select: auto;
+  user-select: auto;
 }
 
 .item-card {
