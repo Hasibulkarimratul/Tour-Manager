@@ -758,7 +758,7 @@ export default function App() {
 
   const handleRestoreTour = async (id: string) => {
     if (!user) return;
-    await updateDoc(doc(db, 'tours', id), { deletedAt: deleteField() });
+    await updateDoc(doc(db, 'tours', id), { deletedAt: null });
   };
 
   const handlePermanentDeleteTour = async (id: string) => {
@@ -768,7 +768,7 @@ export default function App() {
 
   const handleRestoreExpense = async (id: string) => {
     if (!user || !activeTourId) return;
-    await updateDoc(doc(db, 'tours', activeTourId, 'expenses', id), { deletedAt: deleteField() });
+    await updateDoc(doc(db, 'tours', activeTourId, 'expenses', id), { deletedAt: null });
   };
 
   const handlePermanentDeleteExpense = async (id: string) => {
@@ -1510,59 +1510,59 @@ function ExportModal({
         exit={{ scale: 0.9, opacity: 0 }}
         className="w-full max-w-sm"
       >
-        <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-[32px] p-6 shadow-2xl relative">
+        <div className="bg-[var(--bg-main)] border border-[var(--border-color)] rounded-[32px] p-6 sm:p-8 shadow-2xl relative">
           <h3 className="text-xl font-black text-purple-500 tracking-tighter mb-6 uppercase">Export Options</h3>
           
           <div className="space-y-3 mb-6">
             <button
               onClick={() => downloadTripPDF(activeTour, balances, settlements)}
-              className="w-full text-left bg-sky-500/10 p-4 rounded-xl border border-sky-500/20 hover:border-sky-500 hover:bg-sky-500/20 transition-colors"
+              className="w-full text-left bg-sky-500/10 p-3 sm:p-4 rounded-xl border border-sky-500/20 hover:border-sky-500 hover:bg-sky-500/20 transition-colors"
             >
-              <div className="font-bold text-sm flex items-center gap-2 text-sky-500">
+              <div className="font-bold text-xs sm:text-sm flex items-center gap-2 text-sky-500">
                  Complete Trip Report (PDF)
               </div>
-              <div className="text-[10px] text-sky-600/70 uppercase tracking-widest mt-1">Export full trip report with images and balances to PDF</div>
+              <div className="text-[9px] sm:text-[10px] text-sky-600/70 uppercase tracking-widest mt-1">Export full trip report with images and balances to PDF</div>
             </button>
             <button
               onClick={() => downloadFile(`${activeTour.name}_whole_summary.csv`, generateCSV(balances, settlements))}
-              className="w-full text-left bg-[var(--bg-surface)] p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
+              className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
             >
-              <div className="font-bold text-sm">Whole Summary</div>
-              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">Basic member balances & debts</div>
+              <div className="font-bold text-xs sm:text-sm">Whole Summary</div>
+              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">Basic member balances & debts</div>
             </button>
             <button
               onClick={() => downloadFile(`${activeTour.name}_detailed_breakdown.csv`, generateDetailedBreakdownCSV(activeTour, balances, settlements))}
-              className="w-full text-left bg-[var(--bg-surface)] p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
+              className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
             >
-              <div className="font-bold text-sm">Detailed Breakdown</div>
-              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">Trip info, all expenses, receipts, notes, etc.</div>
+              <div className="font-bold text-xs sm:text-sm">Detailed Breakdown</div>
+              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">Trip info, all expenses, receipts, notes, etc.</div>
             </button>
             <button
               onClick={() => downloadFile(`${activeTour.name}_expenses_only.csv`, generateExpenseBreakdownCSV(activeTour.expenses, activeTour.members))}
-              className="w-full text-left bg-[var(--bg-surface)] p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
+              className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
             >
-              <div className="font-bold text-sm">Expenses & Events Only</div>
-              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">All expenses with payers & consumers</div>
+              <div className="font-bold text-xs sm:text-sm">Expenses & Events Only</div>
+              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">All expenses with payers & consumers</div>
             </button>
             <button
               onClick={() => downloadFile(`${activeTour.name}_receipts_summary.csv`, generateReceiptsCSV(activeTour.expenses))}
-              className="w-full text-left bg-[var(--bg-surface)] p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
+              className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
             >
-              <div className="font-bold text-sm">Receipts Summary</div>
-              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">List of expenses with receipt status</div>
+              <div className="font-bold text-xs sm:text-sm">Receipts Summary</div>
+              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">List of expenses with receipt status</div>
             </button>
             <button
               onClick={() => downloadFile(`${activeTour.name}_debts_only.csv`, generateDebtBreakdownCSV(settlements, balances))}
-              className="w-full text-left bg-[var(--bg-surface)] p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
+              className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
             >
-              <div className="font-bold text-sm">Settlements & Debts</div>
-              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">Optimized payment plan between members</div>
+              <div className="font-bold text-xs sm:text-sm">Settlements & Debts</div>
+              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">Optimized payment plan between members</div>
             </button>
           </div>
 
           <button
             onClick={onClose}
-            className="w-full py-4 font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-[var(--text-main)] rounded-2xl transition-all"
+            className="w-full py-3 sm:py-4 font-bold bg-[var(--bg-surface)] text-[var(--text-main)] rounded-full hover:bg-[var(--text-main)] hover:text-[var(--bg-main)] transition-all border border-[var(--border-color)] uppercase tracking-widest text-xs shadow-sm"
           >
             CANCEL
           </button>
@@ -1635,9 +1635,9 @@ function TrashModal({
             items.map(item => {
               const deletedAt = 'deletedAt' in item ? item.deletedAt : Date.now();
               const daysLeft = deletedAt ? Math.max(0, 30 - Math.floor((Date.now() - deletedAt) / (1000 * 60 * 60 * 24))) : 0;
-              const isExpense = 'description' in item;
+              const isExpense = 'totalAmount' in item;
               
-              const title = isExpense ? item.description : item.name;
+              const title = item.name;
               
               return (
                 <div key={item.id} className="bg-[var(--bg-main)] p-4 rounded-2xl flex items-center justify-between border border-[var(--border-color)] group">
@@ -1891,14 +1891,14 @@ function SettingsModal({
           
           <button
             onClick={() => window.open('mailto:contact@TripVault.test')}
-            className="w-full py-4 bg-[var(--bg-surface)] hover:bg-slate-200 dark:hover:bg-slate-800 dark:hover:bg-slate-800 border-2 border-dashed border-[var(--border-color)] rounded-2xl font-bold text-[var(--text-main)] mb-4 transition-all uppercase tracking-widest text-xs"
+            className="w-full py-3 sm:py-4 bg-[var(--bg-surface)] hover:bg-slate-200 dark:hover:bg-slate-800 border-2 border-dashed border-[var(--border-color)] rounded-full font-bold text-[var(--text-main)] mb-3 sm:mb-4 transition-all uppercase tracking-widest text-xs"
           >
             CONTACT THE OWNER
           </button>
 
           <button
             onClick={onClose}
-            className="w-full py-4 font-bold bg-purple-500 hover:bg-purple-400 text-white rounded-2xl shadow-lg transition-all"
+            className="w-full py-3 sm:py-4 font-bold bg-purple-500 hover:bg-purple-400 text-white rounded-full shadow-lg transition-all text-xs sm:text-sm uppercase tracking-widest"
           >
             DONE
           </button>
@@ -1951,53 +1951,53 @@ function AddTourModal({
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-[var(--bg-surface)] border border-[var(--border-color)] p-8 rounded-[40px] w-full max-w-sm shadow-2xl"
+        className="bg-[var(--bg-surface)] border border-[var(--border-color)] p-6 sm:p-8 rounded-[32px] w-full max-w-md shadow-2xl"
       >
-        <h2 className="text-2xl font-bold mb-6 tracking-tight">{initialTour ? "EDIT TRIP / PROJECT" : "NEW TRIP / PROJECT"}</h2>
+        <h2 className="text-xl sm:text-2xl font-bold mb-6 tracking-tight">{initialTour ? "EDIT TRIP / PROJECT" : "NEW TRIP / PROJECT"}</h2>
         <div className="space-y-4">
           <div>
-            <label className="text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
+            <label className="text-[10px] sm:text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
               Trip Name
             </label>
             <input
               autoFocus
               id="new-trip-name"
-              className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-5 py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors font-medium"
+              className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors font-medium text-sm sm:text-base"
               placeholder="e.g. Switzerland 2024"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </div>
           <div>
-            <label className="text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
+            <label className="text-[10px] sm:text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
               Date
             </label>
             <input
               id="new-trip-date"
               type="date"
-              className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-5 py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors"
+              className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors text-sm sm:text-base"
               value={date}
               onChange={(e) => setDate(e.target.value)}
             />
           </div>
           <div className="flex gap-2">
             <div className="flex-1">
-              <label className="text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
+              <label className="text-[10px] sm:text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
                 Country
               </label>
               <input
-                className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-5 py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors"
+                className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors text-sm sm:text-base"
                 placeholder="Country"
                 value={country}
                 onChange={(e) => handleCountryChange(e.target.value)}
               />
             </div>
             <div className="flex-1">
-              <label className="text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
+              <label className="text-[10px] sm:text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
                 Town / City
               </label>
               <input
-                className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-5 py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors"
+                className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors text-sm sm:text-base"
                 placeholder="Town"
                 value={town}
                 onChange={(e) => setTown(e.target.value)}
@@ -2005,11 +2005,11 @@ function AddTourModal({
             </div>
           </div>
           <div>
-            <label className="text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
+            <label className="text-[10px] sm:text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
               Currency
             </label>
             <select
-              className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-5 py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors appearance-none"
+              className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors appearance-none text-sm sm:text-base"
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
             >
@@ -2030,14 +2030,14 @@ function AddTourModal({
           <div className="flex gap-3 pt-4">
             <button
               id="cancel-add-trip"
-              className="flex-1 py-4 font-bold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+              className="flex-1 py-3 sm:py-4 font-bold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors text-sm"
               onClick={onClose}
             >
               Cancel
             </button>
             <button
               id="save-new-trip"
-              className="flex-1 py-4 bg-purple-600 text-white shadow-[0_0_20px_rgba(147,51,234,0.3)] rounded-2xl font-black uppercase tracking-widest"
+              className="flex-1 py-3 sm:py-4 bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_20px_rgba(147,51,234,0.3)] rounded-full font-black uppercase tracking-widest text-xs sm:text-sm transition-colors"
               onClick={() => name && onSave(name, date, country, town, currency)}
             >
               {initialTour ? "SAVE CHANGES" : "CREATE TRIP"}
@@ -4042,7 +4042,7 @@ function ExpenseFormModal({
                     e.preventDefault();
                     handleValidateBeforeConfirm();
                   }}
-                  className="w-full py-5 bg-purple-500 hover:bg-purple-600 rounded-2xl font-bold text-sm tracking-widest shadow-2xl shadow-purple-500/20 disabled:opacity-30 disabled:grayscale active:scale-95 transition-all text-white"
+                  className="w-full py-4 bg-purple-500 hover:bg-purple-600 rounded-full font-bold text-sm tracking-widest shadow-2xl shadow-purple-500/20 disabled:opacity-30 disabled:grayscale active:scale-95 transition-all text-white uppercase mt-4"
                 >
                   Save
                 </button>
