@@ -500,7 +500,8 @@ export default function App() {
   };
 
   const [tours, setTours] = useState<Tour[]>([]);
-    const [trashTours, setTrashTours] = useState<Tour[]>([]);
+  const [trashTours, setTrashTours] = useState<Tour[]>([]);
+  const [trashExpenses, setTrashExpenses] = useState<Expense[]>([]);
   const isOnline = useOnlineStatus();
 
   useEffect(() => {
@@ -557,7 +558,10 @@ export default function App() {
     });
     const unsubExpenses = onSnapshot(collection(db, 'tours', activeTourId, 'expenses'), (snap) => {
         const exps = snap.docs.map(d => d.data() as Expense);
-        setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, expenses: exps } : t));
+        const validExps = exps.filter(e => !e.deletedAt);
+        const deletedExps = exps.filter(e => e.deletedAt);
+        setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, expenses: validExps } : t));
+        setTrashExpenses(deletedExps);
     });
     return () => { unsubTour(); unsubExpenses(); };
   }, [activeTourId]);
@@ -762,6 +766,16 @@ export default function App() {
     await deleteDoc(doc(db, 'tours', id));
   };
 
+  const handleRestoreExpense = async (id: string) => {
+    if (!user || !activeTourId) return;
+    await updateDoc(doc(db, 'tours', activeTourId, 'expenses', id), { deletedAt: deleteField() });
+  };
+
+  const handlePermanentDeleteExpense = async (id: string) => {
+    if (!user || !activeTourId) return;
+    await deleteDoc(doc(db, 'tours', activeTourId, 'expenses', id));
+  };
+
   const updateActiveTour = async (
     updated: Tour,
     context?: { tab?: string; highlightId?: string },
@@ -834,7 +848,7 @@ export default function App() {
   const handleDeleteExpense = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!activeTour) return;
-    await deleteDoc(doc(db, 'tours', activeTour.id, 'expenses', id));
+    await updateDoc(doc(db, 'tours', activeTour.id, 'expenses', id), { deletedAt: Date.now() });
     setActiveTab("expenses");
   };
 
@@ -900,11 +914,11 @@ export default function App() {
                    className="relative p-3 text-[var(--text-muted)] hover:text-red-500 bg-[var(--bg-surface)] rounded-full border border-[var(--border-color)] hover:border-red-500 transition-all shadow-sm"
                 >
                   <Trash size={18} />
-                  {trashTours.length > 0 && (
+                  {(trashTours.length > 0 || trashExpenses.length > 0) && (
                     <span className="absolute -top-1 -right-1 flex h-4 w-4">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-[9px] text-white items-center justify-center font-bold">
-                         {trashTours.length}
+                         {trashTours.length + trashExpenses.length}
                       </span>
                     </span>
                   )}
@@ -1012,30 +1026,6 @@ export default function App() {
                     <ChevronLeft size={12} /> Dashboard
                   </button>
                   <div className="flex gap-2 items-center flex-wrap justify-end pl-2">
-                    {history.length > 0 && (
-                      <button
-                        onClick={undo}
-                        className="secondary-button !p-1.5 !rounded-lg flex items-center justify-center group"
-                        title="Undo"
-                      >
-                        <Undo2
-                          size={16}
-                          className="group-active:-rotate-45 transition-transform"
-                        />
-                      </button>
-                    )}
-                    {future.length > 0 && (
-                      <button
-                        onClick={redo}
-                        className="secondary-button !p-1.5 !rounded-lg flex items-center justify-center group"
-                        title="Redo"
-                      >
-                        <Redo2
-                          size={16}
-                          className="group-active:rotate-45 transition-transform"
-                        />
-                      </button>
-                    )}
                     <button
                       onClick={() =>
                         setTheme(theme === "light" ? "dark" : "light")
@@ -1075,6 +1065,21 @@ export default function App() {
                          JOIN CODE: {activeTour?.id}
                       </div>
                     )}
+                    <button
+                      onClick={() => setShowTrash(true)}
+                     title="Trash Vault"
+                     className="relative p-1.5 text-[var(--text-muted)] hover:text-red-500 bg-[var(--bg-surface)] rounded-md border border-[var(--border-color)] hover:border-red-500 transition-all"
+                  >
+                    <Trash size={12} />
+                    {trashExpenses.length > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500 text-[7px] text-white items-center justify-center font-bold">
+                           {trashExpenses.length}
+                        </span>
+                      </span>
+                    )}
+                  </button>
                     {(activeTour?.town || activeTour?.country) && (
                       <div className="flex items-center gap-1 text-[10px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest bg-[var(--bg-surface)] px-2 py-1 rounded-md border border-[var(--border-color)] truncate max-w-[200px]">
                         <MapPin size={12} className="shrink-0" />
@@ -1213,8 +1218,11 @@ export default function App() {
         {showTrash && (
            <TrashModal
               trashTours={trashTours}
-              onRestore={handleRestoreTour}
-              onPermanentDelete={handlePermanentDeleteTour}
+              trashExpenses={trashExpenses}
+              onRestoreTour={handleRestoreTour}
+              onPermanentDeleteTour={handlePermanentDeleteTour}
+              onRestoreExpense={handleRestoreExpense}
+              onPermanentDeleteExpense={handlePermanentDeleteExpense}
               onClose={() => setShowTrash(false)}
            />
         )}
@@ -1567,22 +1575,31 @@ function ExportModal({
 
 function TrashModal({
   trashTours,
-  onRestore,
-  onPermanentDelete,
+  trashExpenses,
+  onRestoreTour,
+  onPermanentDeleteTour,
+  onRestoreExpense,
+  onPermanentDeleteExpense,
   onClose,
 }: {
   trashTours: Tour[];
-  onRestore: (id: string) => void;
-  onPermanentDelete: (id: string) => void;
+  trashExpenses: Expense[];
+  onRestoreTour: (id: string) => void;
+  onPermanentDeleteTour: (id: string) => void;
+  onRestoreExpense: (id: string) => void;
+  onPermanentDeleteExpense: (id: string) => void;
   onClose: () => void;
 }) {
+  const [tab, setTab] = useState<'tours' | 'expenses'>('tours');
+  const items = tab === 'tours' ? trashTours : trashExpenses;
+
   return (
     <div className="modal-overlay">
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-[var(--bg-surface)] border border-[var(--border-color)] p-8 rounded-[40px] w-full max-w-lg shadow-2xl h-[80vh] flex flex-col"
+        className="bg-[var(--bg-surface)] border border-[var(--border-color)] p-8 rounded-[40px] w-full max-w-lg shadow-2xl h-[80vh] flex flex-col pt-6"
       >
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold tracking-tight text-red-500">TRASH VAULT</h2>
@@ -1590,28 +1607,49 @@ function TrashModal({
              <X size={20} />
           </button>
         </div>
-        <p className="text-xs text-[var(--text-muted)] font-bold uppercase tracking-widest mb-4">Tours are permanently deleted after 30 days.</p>
+
+        <div className="flex gap-2 mb-4 bg-[var(--bg-main)] p-1 rounded-2xl border border-[var(--border-color)]">
+          <button 
+             onClick={() => setTab('tours')} 
+             className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${tab === 'tours' ? 'bg-red-500 text-white shadow-md' : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface)]'}`}
+           >
+            Trips ({trashTours.length})
+          </button>
+          <button 
+             onClick={() => setTab('expenses')} 
+             className={`flex-1 py-2 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${tab === 'expenses' ? 'bg-red-500 text-white shadow-md' : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface)]'}`}
+           >
+            Entries ({trashExpenses.length})
+          </button>
+        </div>
+        
+        <p className="text-[10px] text-[var(--text-muted)] font-black uppercase tracking-widest mb-4">Items are permanently deleted after 30 days.</p>
         
         <div className="flex-1 overflow-y-auto space-y-4">
-          {trashTours.length === 0 ? (
+          {items.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] opacity-50">
                 <Trash size={48} className="mb-4" />
                 <p className="font-bold text-sm uppercase tracking-widest">Trash is empty</p>
              </div>
           ) : (
-            trashTours.map(tour => {
-              const daysLeft = tour.deletedAt ? Math.max(0, 30 - Math.floor((Date.now() - tour.deletedAt) / (1000 * 60 * 60 * 24))) : 0;
+            items.map(item => {
+              const deletedAt = 'deletedAt' in item ? item.deletedAt : Date.now();
+              const daysLeft = deletedAt ? Math.max(0, 30 - Math.floor((Date.now() - deletedAt) / (1000 * 60 * 60 * 24))) : 0;
+              const isExpense = 'description' in item;
+              
+              const title = isExpense ? item.description : item.name;
+              
               return (
-                <div key={tour.id} className="bg-[var(--bg-main)] p-4 rounded-2xl flex items-center justify-between border border-[var(--border-color)]">
+                <div key={item.id} className="bg-[var(--bg-main)] p-4 rounded-2xl flex items-center justify-between border border-[var(--border-color)] group">
                    <div>
-                      <p className="font-bold text-[var(--text-main)] text-lg">{tour.name}</p>
+                      <p className="font-bold text-[var(--text-main)] text-lg truncate max-w-[140px] sm:max-w-xs">{title || 'Unnamed'}</p>
                       <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-bold">Expires in {daysLeft} days</p>
                    </div>
-                   <div className="flex gap-2">
-                     <button onClick={() => onRestore(tour.id)} className="p-3 bg-purple-500/10 text-purple-500 hover:bg-purple-500 hover:text-white rounded-xl transition-colors font-bold text-xs uppercase tracking-widest">
+                   <div className="flex gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                     <button onClick={() => isExpense ? onRestoreExpense(item.id) : onRestoreTour(item.id)} className="p-2 sm:px-3 bg-[var(--bg-surface)] text-[var(--text-main)] hover:bg-purple-500 hover:text-white rounded-xl transition-colors font-bold text-xs uppercase tracking-widest border border-[var(--border-color)] hover:border-transparent">
                        Restore
                      </button>
-                     <button onClick={() => { if(confirm("Permanently delete this tour?")) onPermanentDelete(tour.id) }} className="p-3 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-colors font-bold text-xs uppercase tracking-widest">
+                     <button onClick={() => { if(confirm("Permanently delete?")) isExpense ? onPermanentDeleteExpense(item.id) : onPermanentDeleteTour(item.id) }} className="p-2 sm:px-3 bg-[var(--bg-surface)] text-[var(--text-main)] hover:bg-red-500 hover:text-white rounded-xl transition-colors font-bold text-xs uppercase tracking-widest border border-[var(--border-color)] hover:border-transparent">
                        Delete
                      </button>
                    </div>
@@ -1631,104 +1669,150 @@ function InstructionsModal({ onClose }: { onClose: () => void }) {
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="bg-[var(--bg-main)] w-full max-w-lg rounded-[32px] p-6 sm:p-8 flex flex-col gap-6 max-h-[90vh] shadow-2xl overflow-y-auto"
+        className="bg-[var(--bg-main)] w-full max-w-2xl rounded-[32px] p-6 sm:p-8 flex flex-col gap-6 max-h-[90vh] shadow-2xl overflow-y-auto"
       >
-        <div className="flex justify-between items-center bg-purple-500/10 p-4 rounded-2xl">
+        <div className="flex justify-between items-center bg-[var(--bg-surface)] p-4 rounded-2xl sticky top-0 z-10 backdrop-blur-md border border-[var(--border-color)]">
           <div>
-            <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tighter text-purple-600 mb-1">
-              How to Use / কীভাবে ব্যবহার করবেন
+            <h2 className="text-xl font-black uppercase tracking-tighter text-[var(--text-main)] mb-1">
+              How to Guide
             </h2>
-            <p className="text-xs sm:text-sm font-bold text-[var(--text-muted)] uppercase tracking-widest">
-              Simple Guide for Everyone!
+            <p className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest">
+              সহজ নির্দেশিকা
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 sm:p-3 bg-[var(--bg-surface)] hover:bg-red-50 hover:text-red-500 text-[var(--text-muted)] rounded-2xl transition-all border border-[var(--border-color)]"
+            className="p-2 sm:p-2 bg-[var(--bg-main)] hover:bg-red-50 hover:text-red-500 text-[var(--text-muted)] rounded-xl transition-all border border-[var(--border-color)]"
           >
-            <X size={20} className="sm:hidden" />
-            <X size={24} className="hidden sm:block" />
+            <X size={18} className="sm:hidden" />
+            <X size={20} className="hidden sm:block" />
           </button>
         </div>
 
-        <div className="space-y-6 text-sm">
+        <div className="space-y-6 text-sm px-2">
+
+          {/* Dash & Trips */}
+          <div className="space-y-3">
+            <h3 className="font-black text-[var(--text-main)] border-b border-[var(--border-color)] pb-2 flex items-center gap-2">
+              <span className="bg-[var(--text-main)] text-[var(--bg-main)] w-5 h-5 rounded text-xs flex items-center justify-center">1</span>
+              Creating Trips / ট্রিপ শুরু করা
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">English:</strong> Create a new trip. If you are signed in, it saves to the cloud! If not, it saves to your device.
+              </p>
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">বাংলা:</strong> নতুন ট্রিপ তৈরি করুন। সাইন ইন করা থাকলে এটি ক্লাউডে সেভ হবে, অন্যথায় নিজস্ব ফোনে!
+              </p>
+            </div>
+          </div>
+
           {/* Members */}
-          <div className="space-y-2">
-            <h3 className="font-black text-lg text-purple-500 flex items-center gap-2">
-              <span className="bg-purple-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span>
-              Add Members / সদস্য যোগ করুন
+          <div className="space-y-3">
+            <h3 className="font-black text-[var(--text-main)] border-b border-[var(--border-color)] pb-2 flex items-center gap-2">
+              <span className="bg-[var(--text-main)] text-[var(--bg-main)] w-5 h-5 rounded text-xs flex items-center justify-center">2</span>
+              Adding Members / সদস্য যোগ
             </h3>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">English:</span> Start by adding everyone going on the trip. You can't add an expense without people! Example: Add "Ratul", "Sabbir", "Labib".
-            </p>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">বাংলা:</span> প্রথমেই ট্রিপে যারা যারা যাচ্ছে তাদের নাম যোগ করুন। লোক ছাড়া খরচ যোগ করা যাবে না! উদাহরণ: "Ratul", "Sabbir", "Labib" যোগ করুন।
-            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">English:</strong> Add your friends' names! You cannot add an expense without friends.
+              </p>
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">বাংলা:</strong> বন্ধুদের নাম যোগ করুন! বন্ধু ছাড়া খরচ যোগ করা যাবে না।
+              </p>
+            </div>
           </div>
 
-          {/* Expenses */}
-          <div className="space-y-2">
-            <h3 className="font-black text-lg text-purple-500 flex items-center gap-2">
-              <span className="bg-purple-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span>
-              Add Expenses / খরচ যোগ করুন
+          {/* Join & Share */}
+          <div className="space-y-3">
+            <h3 className="font-black text-[var(--text-main)] border-b border-[var(--border-color)] pb-2 flex items-center gap-2">
+              <span className="bg-[var(--text-main)] text-[var(--bg-main)] w-5 h-5 rounded text-xs flex items-center justify-center">3</span>
+              Invite Friends / প্রোজেক্ট শেয়ার
             </h3>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">English:</span> Tap "Add Expense". Suppose Sabbir paid 1000 TK for Hotel. Select Sabbir as the "Payer". Select everyone as "Split Among" and choose "Equal" split.
-            </p>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">বাংলা:</span> "Add Expense" এ চাপ দিন। ধরুন, সাব্বির হোটেলের জন্য ১০০০ টাকা দিল। payer হিসেবে সাব্বিরকে সিলেক্ট করুন। "Split Among" এ সবাইকে সিলেক্ট করে "Equal" (সমান ভাগে) ভাগ করে দিন।
-            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">English:</strong> Share the JOIN CODE so friends can join your trip and see everything live!
+              </p>
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">বাংলা:</strong> JOIN CODE কপি করে বন্ধুদের দিন, তারা তাদের ফোন থেকে লাইভ দেখতে পারবে।
+              </p>
+            </div>
           </div>
 
-          {/* Custom Split */}
-          <div className="space-y-2">
-            <h3 className="font-black text-lg text-purple-500 flex items-center gap-2">
-              <span className="bg-purple-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">3</span>
-              Unequal Split / অসমান খরচ
+          {/* Expenses & Splits */}
+          <div className="space-y-3">
+            <h3 className="font-black text-[var(--text-main)] border-b border-[var(--border-color)] pb-2 flex items-center gap-2">
+              <span className="bg-[var(--text-main)] text-[var(--bg-main)] w-5 h-5 rounded text-xs flex items-center justify-center">4</span>
+              Add Expenses / খরচ যোগ
             </h3>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">English:</span> If Labib ate food worth 300 TK and Ratul ate 200 TK, use "Exact" split mode instead of "Equal", and type their exact amounts!
-            </p>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">বাংলা:</span> ধরুন লাবিব ৩০০ টাকার খাবার খেল আর রাতুল ২০০ টাকার। তখন "Equal" এর বদলে "Exact" সিলেক্ট করে যার যার নামের পাশে তার খরচ বসিয়ে দিন!
-            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">English:</strong> Select who paid the money, and who the expense was for. Split it evenly or exactly!
+              </p>
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">বাংলা:</strong> কে টাকা দিয়েছে আর কাদের জন্য খরচ হয়েছে তা সিলেক্ট করে সমান বা নির্দিষ্ট ভাগে বিল ভাগ করুন।
+              </p>
+            </div>
           </div>
 
           {/* Settle Up */}
-          <div className="space-y-2">
-            <h3 className="font-black text-lg text-purple-500 flex items-center gap-2">
-              <span className="bg-purple-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">4</span>
-              Settle Debts / হিসাব মেলানো
+          <div className="space-y-3">
+            <h3 className="font-black text-[var(--text-main)] border-b border-[var(--border-color)] pb-2 flex items-center gap-2">
+              <span className="bg-[var(--text-main)] text-[var(--bg-main)] w-5 h-5 rounded text-xs flex items-center justify-center">5</span>
+              Settle UP / হিসাব মেলানো
             </h3>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">English:</span> Go to the "Settle" tab. It tells you exactly who owes money to whom. "Ratul needs to pay Labib 300 TK". Easy!
-            </p>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">বাংলা:</span> "Settle" ট্যাবে যান। এটা বলে দেবে কে কাকে কত টাকা দেবে। "রাতুল লাবিবকে ৩০০ টাকা দেবে।" একদম সিম্পল!
-            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">English:</strong> Check who owes whom. If someone pays you back, tap it and hit "Record Payment"!
+              </p>
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">বাংলা:</strong> কে কাকে টাকা দেবে তা Settle ট্যাবে দেখুন। কেউ টাকা দিলে 'Record Payment' এ চাপ দিন।
+              </p>
+            </div>
           </div>
-          
-          {/* PDF */}
-          <div className="space-y-2">
-            <h3 className="font-black text-lg text-purple-500 flex items-center gap-2">
-              <span className="bg-purple-500 text-white w-6 h-6 rounded-full flex items-center justify-center text-sm">5</span>
-              PDF Report / পিডিএফ রিপোর্ট
+
+          {/* PDF Export */}
+          <div className="space-y-3">
+            <h3 className="font-black text-[var(--text-main)] border-b border-[var(--border-color)] pb-2 flex items-center gap-2">
+              <span className="bg-[var(--text-main)] text-[var(--bg-main)] w-5 h-5 rounded text-xs flex items-center justify-center">6</span>
+              Get PDF / পিডিএফ ডাউনলোড
             </h3>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">English:</span> At the end of the trip, tap the "Download" icon at the top to save a full PDF report of all expenses and balances!
-            </p>
-            <p className="text-[var(--text-main)] font-medium">
-              <span className="font-bold">বাংলা:</span> ট্রিপ শেষে, উপরে "Download" আইকনে চাপ দিয়ে পুরো খরচের হিসাবের পিডিএফ রিপোর্ট সেভ করে নিন!
-            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">English:</strong> Tap the download icon at the top at the end of the trip to save a PDF report.
+              </p>
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">বাংলা:</strong> ট্রিপ শেষে উপরের ডাউনলোড আইকনে চাপ দিয়ে পিডিএফ সেভ করুন!
+              </p>
+            </div>
           </div>
+
+          {/* Trash */}
+          <div className="space-y-3">
+            <h3 className="font-black text-[var(--text-main)] border-b border-[var(--border-color)] pb-2 flex items-center gap-2">
+              <span className="bg-red-500 text-white w-5 h-5 rounded text-xs flex items-center justify-center">7</span>
+              Trash / মুছে ফেলা জিনিস
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">English:</strong> If you accidentally delete a trip or expense, you can restore it from the Trash Vault!
+              </p>
+              <p className="text-[var(--text-muted)] font-medium leading-relaxed">
+                <strong className="text-[var(--text-main)] block mb-1">বাংলা:</strong> ভুলে কোনো ট্রিপ বা খরচ ডিলিট হলে, সেটি Trash Vault থেকে আবার ফিরিয়ে আনা যাবে!
+              </p>
+            </div>
+          </div>
+
         </div>
 
-        <button
-          onClick={onClose}
-          className="w-full accent-button py-4 mt-2"
-        >
-          I UNDERSTAND / বুঝতে পেরেছি
-        </button>
+        <div className="flex justify-center mt-2 sticky bottom-0 bg-[var(--bg-main)] p-2">
+          <button
+            onClick={onClose}
+            className="w-full sm:w-auto px-12 text-xs uppercase font-black tracking-widest bg-[var(--bg-surface)] text-[var(--text-main)] py-3 rounded-full hover:bg-[var(--text-main)] hover:text-[var(--bg-main)] transition-all border border-[var(--border-color)] shadow-sm"
+          >
+            Close Guide
+          </button>
+        </div>
       </motion.div>
     </div>
   );
@@ -2618,19 +2702,19 @@ function InsightsView({
         <div className="item-card p-6 bg-purple-600 text-white relative overflow-hidden group">
           <div className="absolute -top-6 -right-6 w-24 h-24 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700" />
           <TrendingUp className="mb-4 opacity-40" size={24} />
-          <p className="text-xs font-black uppercase tracking-[0.2em] opacity-70">
+          <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] opacity-70">
             Accumulated Spend
           </p>
-          <h2 className="text-3xl font-black tracking-tighter mt-1">
+          <h2 title={formatCurrency(totalCost, activeTour?.currency)} className="text-2xl sm:text-3xl font-black tracking-tighter mt-1 truncate">
             {formatCurrency(totalCost, activeTour?.currency)}
           </h2>
         </div>
-        <div className="item-card p-6 border-purple-500/20 bg-white dark:bg-[var(--bg-surface)] group">
-          <Users className="mb-4 text-purple-500 opacity-80" size={24} />
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-[var(--text-muted)]">
+        <div className="item-card p-4 sm:p-6 border-purple-500/20 bg-white dark:bg-[var(--bg-surface)] group relative overflow-hidden">
+          <Users className="mb-2 sm:mb-4 text-purple-500 opacity-80" size={24} />
+          <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-[var(--text-muted)]">
             Member Liability Avg
           </p>
-          <h2 className="text-3xl font-black tracking-tighter text-purple-600 mt-1">
+          <h2 title={formatCurrency(avgPerMember, activeTour?.currency)} className="text-2xl sm:text-3xl font-black tracking-tighter text-purple-600 mt-1 truncate">
             {formatCurrency(avgPerMember, activeTour?.currency)}
           </h2>
         </div>
@@ -2944,7 +3028,7 @@ function SettleView({
               </button>
             </div>
           </div>
-          <h2 className="text-5xl font-black">{formatCurrency(totalSpent, activeTour?.currency)}</h2>
+          <h2 title={formatCurrency(totalSpent, activeTour?.currency)} className="text-4xl sm:text-5xl font-black truncate">{formatCurrency(totalSpent, activeTour?.currency)}</h2>
           <div className="mt-6 flex items-center justify-between">
             <p className="text-xs font-bold text-sky-200 uppercase tracking-tight">
               Across {balances.length} Members
@@ -3545,13 +3629,13 @@ function ExpenseFormModal({
 
         <div className="space-y-8">
           <section className="space-y-4">
-            <div className="bg-purple-500 rounded-[32px] p-8 text-white shadow-2xl shadow-purple-500/30 overflow-hidden relative mb-4">
+            <div className="bg-purple-500 rounded-[32px] p-6 lg:p-8 text-white shadow-2xl shadow-purple-500/30 overflow-hidden relative mb-4">
               <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl" />
               <div className="relative">
-                <p className="text-purple-100 text-xs font-black uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <p className="text-purple-100 text-[10px] sm:text-xs font-black uppercase tracking-widest mb-2 flex items-center gap-1.5">
                   <Scale size={12} /> Balance Sheet
                 </p>
-                <h2 className="text-4xl font-black">
+                <h2 title={formatCurrency(totalAmount, currency)} className="text-3xl sm:text-4xl font-black truncate max-w-full">
                   {formatCurrency(totalAmount, currency)}
                 </h2>
 
