@@ -1,13 +1,16 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(({mode}) => {
+export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  
   return {
-    base: "/Tour-Manager/",
+    // 1. Critical: Base path must exactly match your GitHub repository name
+    base: "/Tour-Manager/", 
+    
     plugins: [
       react(), 
       tailwindcss(),
@@ -15,15 +18,28 @@ export default defineConfig(({mode}) => {
         registerType: 'autoUpdate',
         devOptions: { enabled: false },
         manifest: {
-          name: 'TourVault',
-          short_name: 'TourVault',
+          name: 'Tour Manager',
+          short_name: 'Tour Manager',
           description: 'Tour budget and expense management',
           theme_color: '#8b5cf6',
+          background_color: '#0d0c10',
+          display: 'standalone',
+          // 2. Critical: Scope and start_url must match the base path
+          start_url: '/Tour-Manager/',
+          scope: '/Tour-Manager/',
+          // 3. Critical: Must point to physical PNG files in your public/ folder
           icons: [
-             {
-              src: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%238b5cf6"/></svg>',
+            {
+              src: 'icon-192.png',
               sizes: '192x192',
-              type: 'image/svg+xml'
+              type: 'image/png',
+              purpose: 'any maskable'
+            },
+            {
+              src: 'icon-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any maskable'
             }
           ]
         },
@@ -43,7 +59,7 @@ export default defineConfig(({mode}) => {
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      // Do not modify—file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
