@@ -546,7 +546,10 @@ export default function App() {
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!activeTourId) return;
+    if (!activeTourId) {
+      setTrashExpenses([]);
+      return;
+    }
     const unsubTour = onSnapshot(doc(db, 'tours', activeTourId), (docSnap) => {
         if (docSnap.exists()) {
             const currentData = docSnap.data();
@@ -758,7 +761,12 @@ export default function App() {
 
   const handleRestoreTour = async (id: string) => {
     if (!user) return;
-    await updateDoc(doc(db, 'tours', id), { deletedAt: null });
+    try {
+      await updateDoc(doc(db, 'tours', id), { deletedAt: deleteField() });
+    } catch (e) {
+      console.error(e);
+      alert("Failed to restore tour");
+    }
   };
 
   const handlePermanentDeleteTour = async (id: string) => {
@@ -768,7 +776,12 @@ export default function App() {
 
   const handleRestoreExpense = async (id: string) => {
     if (!user || !activeTourId) return;
-    await updateDoc(doc(db, 'tours', activeTourId, 'expenses', id), { deletedAt: null });
+    try {
+      await updateDoc(doc(db, 'tours', activeTourId, 'expenses', id), { deletedAt: deleteField() });
+    } catch (e) {
+      console.error(e);
+      alert("Failed to restore entry");
+    }
   };
 
   const handlePermanentDeleteExpense = async (id: string) => {
@@ -1591,6 +1604,15 @@ function TrashModal({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<'tours' | 'expenses'>('tours');
+  
+  useEffect(() => {
+    if (trashTours.length === 0 && trashExpenses.length > 0) {
+      setTab('expenses');
+    } else if (trashTours.length > 0 && trashExpenses.length === 0) {
+      setTab('tours');
+    }
+  }, [trashTours.length, trashExpenses.length]);
+
   const items = tab === 'tours' ? trashTours : trashExpenses;
 
   return (
@@ -1635,7 +1657,7 @@ function TrashModal({
             items.map(item => {
               const deletedAt = 'deletedAt' in item ? item.deletedAt : Date.now();
               const daysLeft = deletedAt ? Math.max(0, 30 - Math.floor((Date.now() - deletedAt) / (1000 * 60 * 60 * 24))) : 0;
-              const isExpense = 'totalAmount' in item;
+              const isExpense = tab === 'expenses';
               
               const title = item.name;
               
