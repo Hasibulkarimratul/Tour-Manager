@@ -30,6 +30,9 @@ export interface Expense {
   notes?: string;
   splitMode: 'equal' | 'amount' | 'percent';
   category?: 'expense' | 'payment';
+  creatorId?: string;
+  creatorName?: string;
+  deletedAt?: number;
 }
 
 export interface Tour {
@@ -44,6 +47,7 @@ export interface Tour {
   expenses: Expense[];
   deletedAt?: number;
   path?: { lat: number; lng: number; timestamp: number }[];
+  adminId?: string;
 }
 
 export interface Transaction {
