@@ -502,15 +502,6 @@ export default function App() {
   const [tours, setTours] = useState<Tour[]>([]);
   const [trashTours, setTrashTours] = useState<Tour[]>([]);
   const [trashExpenses, setTrashExpenses] = useState<Expense[]>([]);
-  const [joinedTourIds, setJoinedTourIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem("tourvault_joined_tours");
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem("tourvault_joined_tours", JSON.stringify(joinedTourIds));
-  }, [joinedTourIds]);
-
   const isOnline = useOnlineStatus();
 
   useEffect(() => {
@@ -536,29 +527,6 @@ export default function App() {
     });
     return () => unsub();
   }, [user]);
-
-  useEffect(() => {
-    if (!user || joinedTourIds.length === 0) return;
-    const unsubs = joinedTourIds.map(id => 
-      onSnapshot(doc(db, 'tours', id), (docSnap) => {
-        if (docSnap.exists()) {
-           const t = docSnap.data() as Tour;
-           setTours(prev => {
-             const copy = [...prev];
-             const idx = copy.findIndex(x => x.id === id);
-             if (idx >= 0) {
-                 copy[idx] = { ...copy[idx], ...t };
-             } else {
-                 copy.push({ id, ...t, expenses: [] });
-             }
-             return copy;
-           });
-        }
-      })
-    );
-    return () => unsubs.forEach(u => u());
-  }, [joinedTourIds, user]);
-
   const [history, setHistory] = useState<
     {
       tours: Tour[];
@@ -769,7 +737,7 @@ export default function App() {
     stripUndefined(newTour);
 
     try {
-      setDoc(doc(db, 'tours', id), newTour).catch(e => console.error(e));
+      await setDoc(doc(db, 'tours', id), newTour);
       setActiveTourId(id);
       setShowAddTour(false);
     } catch (error: any) {
@@ -784,10 +752,9 @@ export default function App() {
     if (!tourToDelete) return;
 
     if (tourToDelete.adminId === user?.uid) {
-        updateDoc(doc(db, 'tours', id), { deletedAt: Date.now() }).catch(e => console.error(e));
+        await updateDoc(doc(db, 'tours', id), { deletedAt: Date.now() });
     } else {
         setTours(prev => prev.filter(t => t.id !== id));
-        setJoinedTourIds(prev => prev.filter(x => x !== id));
     }
     if (activeTourId === id) setActiveTourId(null);
   };
@@ -795,7 +762,7 @@ export default function App() {
   const handleRestoreTour = async (id: string) => {
     if (!user) return;
     try {
-      updateDoc(doc(db, 'tours', id), { deletedAt: deleteField() }).catch(e => console.error(e));
+      await updateDoc(doc(db, 'tours', id), { deletedAt: deleteField() });
     } catch (e) {
       console.error(e);
       alert("Failed to restore tour");
@@ -804,13 +771,13 @@ export default function App() {
 
   const handlePermanentDeleteTour = async (id: string) => {
     if (!user) return;
-    deleteDoc(doc(db, 'tours', id)).catch(e => console.error(e));
+    await deleteDoc(doc(db, 'tours', id));
   };
 
   const handleRestoreExpense = async (id: string) => {
     if (!user || !activeTourId) return;
     try {
-      updateDoc(doc(db, 'tours', activeTourId, 'expenses', id), { deletedAt: deleteField() }).catch(e => console.error(e));
+      await updateDoc(doc(db, 'tours', activeTourId, 'expenses', id), { deletedAt: deleteField() });
     } catch (e) {
       console.error(e);
       alert("Failed to restore entry");
@@ -819,7 +786,7 @@ export default function App() {
 
   const handlePermanentDeleteExpense = async (id: string) => {
     if (!user || !activeTourId) return;
-    deleteDoc(doc(db, 'tours', activeTourId, 'expenses', id)).catch(e => console.error(e));
+    await deleteDoc(doc(db, 'tours', activeTourId, 'expenses', id));
   };
 
   const updateActiveTour = async (
@@ -833,7 +800,7 @@ export default function App() {
        
        stripUndefined(tourData);
 
-       updateDoc(tourDocRef, tourData).catch(e => console.error(e));
+       await updateDoc(tourDocRef, tourData);
        if (context?.tab) setActiveTab(context.tab as any);
        if (context?.highlightId) setHighlightId(context.highlightId);
     }
@@ -885,7 +852,7 @@ export default function App() {
 
     stripUndefined(newExp);
 
-    setDoc(doc(db, 'tours', activeTour.id, 'expenses', id), newExp).catch(console.error);
+    await setDoc(doc(db, 'tours', activeTour.id, 'expenses', id), newExp);
     setActiveTab("expenses");
     setHighlightId(newExp.id);
     setShowExpenseForm(null);
@@ -894,7 +861,7 @@ export default function App() {
   const handleDeleteExpense = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!activeTour) return;
-    updateDoc(doc(db, 'tours', activeTour.id, 'expenses', id), { deletedAt: Date.now() }).catch(console.error);
+    await updateDoc(doc(db, 'tours', activeTour.id, 'expenses', id), { deletedAt: Date.now() });
     setActiveTab("expenses");
   };
 
@@ -993,14 +960,10 @@ export default function App() {
                       const docSnap = await getDoc(doc(db, 'tours', joinTourId));
                       if (docSnap.exists()) {
                         const cloudTour = docSnap.data() as Tour;
-                        if (!tours.find(t => t.id === cloudTour.id)) {
+                                                if (!tours.find(t => t.id === cloudTour.id)) {
                           setTours([...tours, cloudTour]);
                         }
                         setActiveTourId(joinTourId);
-                        setJoinedTourIds(prev => {
-                          if (!prev.includes(joinTourId)) return [...prev, joinTourId];
-                          return prev;
-                        });
                       } else {
                         alert("Invalid Join Code! No trip found with this ID.");
                         setJoinTourId("");
