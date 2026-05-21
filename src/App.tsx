@@ -529,7 +529,13 @@ export default function App() {
        setTours(prev => {
           const joinedTours = prev.filter(t => t.adminId !== user.uid);
           const joinedMap = new Map(joinedTours.map(t => [t.id, t]));
-          userValidTours.forEach(t => joinedMap.set(t.id, t));
+          userValidTours.forEach(t => {
+             const existing = prev.find(p => p.id === t.id);
+             if (existing && existing.expenses) {
+                 t.expenses = existing.expenses;
+             }
+             joinedMap.set(t.id, t);
+          });
           return Array.from(joinedMap.values());
        });
        setTrashTours(userTrashTours);
@@ -546,6 +552,10 @@ export default function App() {
            setTours(prev => {
              const copy = [...prev];
              const idx = copy.findIndex(x => x.id === id);
+             if (t.deletedAt) {
+                 if (idx >= 0) copy.splice(idx, 1);
+                 return copy;
+             }
              if (idx >= 0) {
                  copy[idx] = { ...copy[idx], ...t };
              } else {
@@ -585,8 +595,14 @@ export default function App() {
     const unsubTour = onSnapshot(doc(db, 'tours', activeTourId), (docSnap) => {
         if (docSnap.exists()) {
             const currentData = docSnap.data();
-            setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData } : t));
-        } else {
+            if (currentData.deletedAt) {
+                setActiveTourId(null);
+            } else {
+                setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData } : t));
+            }
+        } else if (!docSnap.metadata.hasPendingWrites && !docSnap.metadata.fromCache) {
+            // Only kick out and delete if the server confirmed it doesn't exist
+            // This prevents kickout during the local doc creation delay when offline
             setActiveTourId(null);
             setTours(prev => prev.filter(t => t.id !== activeTourId));
         }
@@ -769,6 +785,7 @@ export default function App() {
     stripUndefined(newTour);
 
     try {
+      setTours(prev => [...prev, newTour]);
       setDoc(doc(db, 'tours', id), newTour).catch(e => console.error(e));
       setActiveTourId(id);
       setShowAddTour(false);
@@ -993,9 +1010,12 @@ export default function App() {
                       const docSnap = await getDoc(doc(db, 'tours', joinTourId));
                       if (docSnap.exists()) {
                         const cloudTour = docSnap.data() as Tour;
-                        if (!tours.find(t => t.id === cloudTour.id)) {
-                          setTours([...tours, cloudTour]);
-                        }
+                        setTours(prev => {
+                          if (!prev.find(t => t.id === cloudTour.id)) {
+                            return [...prev, cloudTour];
+                          }
+                          return prev;
+                        });
                         setActiveTourId(joinTourId);
                         setJoinedTourIds(prev => {
                           if (!prev.includes(joinTourId)) return [...prev, joinTourId];
