@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
-import { getFirestore, enableMultiTabIndexedDbPersistence } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 
 // Your real Firebase keys
 const firebaseConfig = {
@@ -15,15 +15,10 @@ const firebaseConfig = {
 
 // Initialize the app and database
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
 
-// Enable offline persistence (The "Google Sheets" magic)
-enableMultiTabIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    console.warn('Firebase persistence failed precondition: Multiple tabs open');
-  } else if (err.code === 'unimplemented') {
-    console.warn('Firebase persistence unimplemented in this browser');
-  }
+// Properly enable offline persistence in Firebase v9+ to ensure immediate local reads/writes
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
 });
 
 // Export Auth
