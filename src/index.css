@@ -32,11 +32,15 @@
   color-scheme: dark;
 }
 
+html, body {
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   background-color: var(--bg-main);
   color: var(--text-main);
   @apply font-sans transition-colors duration-500 overflow-x-hidden antialiased;
-  -webkit-tap-highlight-color: transparent;
   
   /* Disables text selection and the native magnifying glass/search popups */
   -webkit-user-select: none;
