@@ -169,6 +169,79 @@ function useLongPress(callback: () => void, ms = 600) {
   };
 }
 
+function IdentityGateModal({
+  activeTour,
+  onClaim,
+  onAddNew,
+}: {
+  activeTour: Tour;
+  onClaim: (memberId: string) => void;
+  onAddNew: (name: string, phone: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+
+  return (
+    <div className="modal-overlay z-[200] p-4 text-[var(--text-main)]">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-[32px] p-6 max-w-sm w-full shadow-2xl"
+      >
+        <h2 className="text-2xl font-black uppercase tracking-tight mb-2 text-center text-purple-500">
+          Who are you?
+        </h2>
+        <p className="text-[10px] text-[var(--text-muted)] font-black uppercase text-center mb-6 tracking-widest">
+          Select your profile
+        </p>
+
+        <div className="space-y-2 mb-6 max-h-[40vh] overflow-y-auto">
+          {activeTour.members.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => onClaim(m.id)}
+              className="w-full text-left px-4 py-3 bg-[var(--bg-main)] rounded-xl uppercase font-black text-sm hover:ring-2 hover:ring-purple-500 transition-all border border-transparent"
+            >
+              {m.name}
+            </button>
+          ))}
+        </div>
+
+        <div className="pt-4 border-t border-[var(--border-color)] space-y-3">
+          <p className="text-[10px] text-[var(--text-muted)] font-black uppercase text-center tracking-widest">
+            Or Register Now
+          </p>
+          <input
+            type="text"
+            placeholder="Your Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-xl px-4 py-3 outline-none focus:border-purple-500"
+          />
+          <input
+            type="text"
+            placeholder="Phone Number"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-xl px-4 py-3 outline-none focus:border-purple-500"
+          />
+          <button
+            onClick={() => {
+              if (name.trim()) {
+                onAddNew(name.trim(), phone.trim());
+              }
+            }}
+            disabled={!name.trim()}
+            className="w-full bg-purple-500 text-white rounded-xl py-3 font-black uppercase disabled:opacity-50"
+          >
+            Join Trip
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 // --- Sub-components to prevent hook conditional rules ---
 function MemberCard({
   m,
@@ -487,11 +560,6 @@ export default function App() {
   
   useEffect(() => {
     localStorage.setItem("tourvault_settings", JSON.stringify(appSettings));
-    if (appSettings.theme === "dark") {
-      document.body.classList.add("dark");
-    } else {
-      document.body.classList.remove("dark");
-    }
   }, [appSettings]);
 
   const theme = appSettings.theme;
@@ -510,6 +578,19 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("tourvault_joined_tours", JSON.stringify(joinedTourIds));
   }, [joinedTourIds]);
+
+  const [claimedProfiles, setClaimedProfiles] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem("tourvault_claimed_profiles");
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("tourvault_claimed_profiles", JSON.stringify(claimedProfiles));
+  }, [claimedProfiles]);
 
   const isOnline = useOnlineStatus();
 
@@ -557,7 +638,7 @@ export default function App() {
                  return copy;
              }
              if (idx >= 0) {
-                 copy[idx] = { ...copy[idx], ...t };
+                 copy[idx] = { ...copy[idx], ...t, expenses: copy[idx].expenses || [] };
              } else {
                  copy.push({ id, ...t, expenses: [] });
              }
@@ -569,22 +650,8 @@ export default function App() {
     return () => unsubs.forEach(u => u());
   }, [joinedTourIds, user]);
 
-  const [history, setHistory] = useState<
-    {
-      tours: Tour[];
-      tab?: string;
-      tourId?: string | null;
-      highlightId?: string;
-    }[]
-  >([]);
-  const [future, setFuture] = useState<
-    {
-      tours: Tour[];
-      tab?: string;
-      tourId?: string | null;
-      highlightId?: string;
-    }[]
-  >([]);
+  const [undoStack, setUndoStack] = useState<any[]>([]);
+  const [redoStack, setRedoStack] = useState<any[]>([]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -598,9 +665,9 @@ export default function App() {
             if (currentData.deletedAt) {
                 setActiveTourId(null);
             } else {
-                setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData } : t));
+                setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData, expenses: t.expenses || [] } : t));
             }
-        } else if (!docSnap.metadata.hasPendingWrites && !docSnap.metadata.fromCache) {
+        } else if (!(docSnap as any).metadata.hasPendingWrites && !(docSnap as any).metadata.fromCache) {
             // Only kick out and delete if the server confirmed it doesn't exist
             // This prevents kickout during the local doc creation delay when offline
             setActiveTourId(null);
@@ -632,66 +699,33 @@ export default function App() {
     }
   }, [highlightId, activeTab, activeTourId]);
 
-  const pushHistory = (context?: {
-    tab?: string;
-    tourId?: string | null;
-    highlightId?: string;
-  }) => {
-    setHistory((prev) => [
-      ...prev.slice(-19),
-      {
-        tours: JSON.parse(JSON.stringify(tours)),
-        tab: activeTab,
-        tourId: activeTourId,
-        highlightId: context?.highlightId,
-      },
-    ]);
-    setFuture([]);
-  };
-
   const undo = () => {
-    if (history.length === 0) return;
-    const previous = history[history.length - 1];
-    setHistory((prev) => prev.slice(0, -1));
-    setFuture((prev) => [
-      ...prev,
-      {
-        tours: JSON.parse(JSON.stringify(tours)),
-        tab: activeTab,
-        tourId: activeTourId,
-        highlightId: previous.highlightId,
-      },
-    ]);
+    if (undoStack.length === 0) return;
+    const lastAction = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, -1));
+    setRedoStack((prev) => [...prev, lastAction]);
 
-    setTours(previous.tours);
-    if (previous.tourId !== undefined) setActiveTourId(previous.tourId);
-    if (previous.tab) setActiveTab(previous.tab as any);
-    if (previous.highlightId) {
-      setHighlightId(previous.highlightId);
-      setTimeout(() => setHighlightId(null), 2500);
+    if (lastAction.action === 'add_expense') {
+      updateDoc(doc(db, 'tours', lastAction.tourId, 'expenses', lastAction.expenseId), { deletedAt: Date.now() }).catch(console.error);
+    } else if (lastAction.action === 'delete_expense') {
+      updateDoc(doc(db, 'tours', lastAction.tourId, 'expenses', lastAction.expenseId), { deletedAt: deleteField() }).catch(console.error);
+    } else if (lastAction.action === 'update_expense') {
+      updateDoc(doc(db, 'tours', lastAction.tourId, 'expenses', lastAction.expenseId), lastAction.previousData).catch(console.error);
     }
   };
 
   const redo = () => {
-    if (future.length === 0) return;
-    const nextState = future[future.length - 1];
-    setFuture((prev) => prev.slice(0, -1));
-    setHistory((prev) => [
-      ...prev,
-      {
-        tours: JSON.parse(JSON.stringify(tours)),
-        tab: activeTab,
-        tourId: activeTourId,
-        highlightId: nextState.highlightId,
-      },
-    ]);
+    if (redoStack.length === 0) return;
+    const nextAction = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, -1));
+    setUndoStack((prev) => [...prev, nextAction]);
 
-    setTours(nextState.tours);
-    if (nextState.tourId !== undefined) setActiveTourId(nextState.tourId);
-    if (nextState.tab) setActiveTab(nextState.tab as any);
-    if (nextState.highlightId) {
-      setHighlightId(nextState.highlightId);
-      setTimeout(() => setHighlightId(null), 2500);
+    if (nextAction.action === 'add_expense') {
+       updateDoc(doc(db, 'tours', nextAction.tourId, 'expenses', nextAction.expenseId), { deletedAt: deleteField() }).catch(console.error);
+    } else if (nextAction.action === 'delete_expense') {
+       updateDoc(doc(db, 'tours', nextAction.tourId, 'expenses', nextAction.expenseId), { deletedAt: Date.now() }).catch(console.error);
+    } else if (nextAction.action === 'update_expense') {
+       updateDoc(doc(db, 'tours', nextAction.tourId, 'expenses', nextAction.expenseId), nextAction.newData).catch(console.error);
     }
   };
   const [showAddTour, setShowAddTour] = useState(false);
@@ -738,6 +772,7 @@ export default function App() {
 
   // --- Computed ---
   const activeTour = tours.find(t => t.id === activeTourId);
+  const isProfileClaimed = activeTourId ? (claimedProfiles[activeTourId] && activeTour?.members.some(m => m.id === claimedProfiles[activeTourId])) : true;
   const isAdmin = activeTour ? activeTour.adminId === user?.uid : false;
   const balances = activeTour
     ? calculateBalances(activeTour.members, activeTour.expenses)
@@ -753,19 +788,21 @@ export default function App() {
   };
 
   const handleAddTour = async (name: string, date: string, country: string, town: string, currency: string) => {
-    if (!user) {
-      alert("Authentication required. Please refresh and ensure you're signed in.");
-      return;
-    }
+    const adminUid = user?.uid || 'local_admin_offline';
     
     let id = Array.from({length: 6}, () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Math.floor(Math.random()*36)]).join('');
     let isUnique = false;
     while (!isUnique) {
-      const docRef = doc(db, 'tours', id);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        id = Array.from({length: 6}, () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Math.floor(Math.random()*36)]).join('');
-      } else {
+      try {
+        const docRef = doc(db, 'tours', id);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          id = Array.from({length: 6}, () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Math.floor(Math.random()*36)]).join('');
+        } else {
+          isUnique = true;
+        }
+      } catch (e) {
+        // If offline, getDoc might fail, assume unique
         isUnique = true;
       }
     }
@@ -777,15 +814,16 @@ export default function App() {
         country,
         town,
         currency,
-        members: [{ id: user.uid, name: displayName || 'Admin', phoneNumber: '', address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: '' }],
+        members: [{ id: adminUid, name: displayName || 'Admin', phoneNumber: '', address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: '' }],
         expenses: [],
-        adminId: user.uid
+        adminId: adminUid
     };
 
     stripUndefined(newTour);
 
     try {
       setTours(prev => [...prev, newTour]);
+      setClaimedProfiles(prev => ({ ...prev, [id]: adminUid }));
       setDoc(doc(db, 'tours', id), newTour).catch(e => console.error(e));
       setActiveTourId(id);
       setShowAddTour(false);
@@ -902,6 +940,14 @@ export default function App() {
 
     stripUndefined(newExp);
 
+    const existingExpense = activeTour.expenses.find(e => e.id === id);
+    if (existingExpense) {
+      setUndoStack(prev => [...prev, { action: 'update_expense', tourId: activeTour.id, expenseId: id, previousData: existingExpense, newData: newExp }]);
+    } else {
+      setUndoStack(prev => [...prev, { action: 'add_expense', tourId: activeTour.id, expenseId: id }]);
+    }
+    setRedoStack([]);
+
     setDoc(doc(db, 'tours', activeTour.id, 'expenses', id), newExp).catch(console.error);
     setActiveTab("expenses");
     setHighlightId(newExp.id);
@@ -911,6 +957,8 @@ export default function App() {
   const handleDeleteExpense = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!activeTour) return;
+    setUndoStack(prev => [...prev, { action: 'delete_expense', tourId: activeTour.id, expenseId: id }]);
+    setRedoStack([]);
     updateDoc(doc(db, 'tours', activeTour.id, 'expenses', id), { deletedAt: Date.now() }).catch(console.error);
     setActiveTab("expenses");
   };
@@ -951,7 +999,7 @@ export default function App() {
             <header className="mb-12 flex flex-col md:flex-row justify-between items-center md:items-start text-[var(--text-main)] relative gap-4">
               <div className="text-center md:text-left">
                 <h1 className="text-6xl font-black tracking-tighter text-purple-500 mb-2 drop-shadow-sm">
-                  TripVault
+                  Tour Manager
                 </h1>
                 <p className="text-[var(--text-muted)] text-sm font-black uppercase tracking-widest">
                   Adventure. Accounted.
@@ -1010,9 +1058,14 @@ export default function App() {
                       const docSnap = await getDoc(doc(db, 'tours', joinTourId));
                       if (docSnap.exists()) {
                         const cloudTour = docSnap.data() as Tour;
+                        if (cloudTour.deletedAt) {
+                          alert("Invalid Join Code! No trip found with this ID.");
+                          setJoinTourId("");
+                          return;
+                        }
                         setTours(prev => {
                           if (!prev.find(t => t.id === cloudTour.id)) {
-                            return [...prev, cloudTour];
+                            return [...prev, { ...cloudTour, expenses: [] }];
                           }
                           return prev;
                         });
@@ -1324,11 +1377,47 @@ export default function App() {
             initialCategory={
               showExpenseForm === "new_payment" ? "payment" : "expense"
             }
+            isReadOnly={typeof showExpenseForm !== 'string' && showExpenseForm?.creatorId !== user?.uid && !isAdmin}
             commonEvents={commonEvents}
             setCommonEvents={setCommonEvents}
             onClose={() => setShowExpenseForm(null)}
             onSave={handleSaveExpense}
             onDelete={handleDeleteExpense}
+          />
+        )}
+        {activeTour && !isProfileClaimed && (
+          <IdentityGateModal
+            activeTour={activeTour}
+            onClaim={(memberId) => {
+              setClaimedProfiles(prev => ({ ...prev, [activeTour.id]: memberId }));
+            }}
+            onAddNew={(name, phone) => {
+               // 1. Create the new member securely
+               const newMemberId = typeof crypto !== 'undefined' && crypto.randomUUID 
+                 ? crypto.randomUUID() 
+                 : Array.from({length: 8}, () => "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random()*36)]).join('');
+                 
+               const newMember = {
+                  id: newMemberId,
+                  name,
+                  phoneNumber: phone,
+                  address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: ''
+               };
+               
+               const updatedMembers = [...activeTour.members, newMember];
+               
+               // 2. Optimistic Local Update (Instant UI change)
+               setTours(prev => prev.map(t => 
+                 t.id === activeTour.id ? { ...t, members: updatedMembers } : t
+               ));
+               
+               // 3. Claim Profile (Instantly dismisses the Gate)
+               setClaimedProfiles(prev => ({ ...prev, [activeTour.id]: newMemberId }));
+               
+               // 4. Background Sync (No 'await', fire and forget)
+               updateDoc(doc(db, 'tours', activeTour.id), { members: updatedMembers })
+                 .catch(console.error);
+            }}
           />
         )}
       </AnimatePresence>
@@ -1969,7 +2058,7 @@ function SettingsModal({
           </div>
           
           <button
-            onClick={() => window.open('mailto:contact@TripVault.test')}
+            onClick={() => window.open('mailto:contact@tourmanager.test')}
             className="w-full py-3 sm:py-4 bg-[var(--bg-surface)] hover:bg-slate-200 dark:hover:bg-slate-800 border-2 border-dashed border-[var(--border-color)] rounded-full font-bold text-[var(--text-main)] mb-3 sm:mb-4 transition-all uppercase tracking-widest text-xs"
           >
             CONTACT THE OWNER
@@ -2475,7 +2564,7 @@ function ExpenseCard({
     <div
       id={`expense-${exp.id}`}
       className={`group relative bg-[var(--bg-surface)] border rounded-[24px] p-5 hover:border-purple-500/50 hover:shadow-xl transition-all cursor-pointer overflow-hidden ${isValid ? "border-[var(--border-color)]" : "border-red-500 border-2 bg-red-500/5"} ${isHighlighted && isValid ? "ring-2 ring-purple-500 scale-102 bg-purple-50/10" : ""}`}
-      onClick={() => (isAdmin || exp.creatorId === currentUserId) && onEdit(exp)}
+      onClick={() => onEdit(exp)}
     >
       {!isValid && (
         <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-xl z-30 uppercase tracking-widest">
@@ -3245,6 +3334,7 @@ function ExpenseFormModal({
   members,
   expense,
   initialCategory,
+  isReadOnly,
   commonEvents,
   setCommonEvents,
   onClose,
@@ -3256,6 +3346,7 @@ function ExpenseFormModal({
   members: Member[];
   expense: Expense | null;
   initialCategory?: "expense" | "payment";
+  isReadOnly?: boolean;
   commonEvents: string[];
   setCommonEvents: (v: string[] | ((prev: string[]) => string[])) => void;
   onClose: () => void;
@@ -3270,10 +3361,10 @@ function ExpenseFormModal({
   );
   const [notes, setNotes] = useState(expense?.notes || "");
   const initialCat = expense?.category || initialCategory || "expense";
+  const [category, setCategory] = useState<"expense" | "payment">(initialCat);
   const [splitMode, setSplitMode] = useState<"equal" | "amount" | "percent">(
     expense?.splitMode || (initialCat === "payment" ? "amount" : "equal"),
   );
-  const category = initialCat; // no longer state, immutable during modal lifecycle
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [showCalculator, setShowCalculator] = useState(false);
   const [showEventMgmt, setShowEventMgmt] = useState(false);
@@ -3342,18 +3433,28 @@ function ExpenseFormModal({
       return;
     }
     
+    const selfSend = Object.keys(payers).some(pId => beneficiaries[pId]);
+    if (category === "payment" && selfSend) {
+      setValidationError("A member cannot send money to themselves.");
+      return;
+    }
+    
     setValidationError("");
     setShowConfirmation(true);
   };
 
   const distributeEquallyPaid = () => {
     const activePayers = Object.keys(payers);
-    const targets =
-      activePayers.length > 0 ? activePayers : members.map((m) => m.id);
-    const share = Number((totalAmount / targets.length).toFixed(2));
+    const targets = activePayers.length > 0 ? activePayers : members.map((m) => m.id);
+    
+    // Calculate exact base share and the leftover pennies
+    const baseShare = Math.floor((totalAmount / targets.length) * 100) / 100;
+    const remainder = Number((totalAmount - (baseShare * targets.length)).toFixed(2));
+
     const newPayers: { [id: string]: number } = {};
-    targets.forEach((id) => {
-      newPayers[id] = share;
+    targets.forEach((id, index) => {
+      // Give the first person the extra pennies so the math is flawless
+      newPayers[id] = index === 0 ? Number((baseShare + remainder).toFixed(2)) : baseShare;
     });
     setPayers(newPayers);
   };
@@ -3397,12 +3498,16 @@ function ExpenseFormModal({
       setBeneficiaries((prev) => {
         const selectedBens = Object.keys(prev);
         if (selectedBens.length === 0) return prev;
-        const share = Number((totalAmount / selectedBens.length).toFixed(2));
+        
+        const baseShare = Math.floor((totalAmount / selectedBens.length) * 100) / 100;
+        const remainder = Number((totalAmount - (baseShare * selectedBens.length)).toFixed(2));
+        
         let changed = false;
         const next = { ...prev };
-        selectedBens.forEach((id) => {
-          if (next[id] !== share) {
-            next[id] = share;
+        selectedBens.forEach((id, index) => {
+          const expectedShare = index === 0 ? Number((baseShare + remainder).toFixed(2)) : baseShare;
+          if (next[id] !== expectedShare) {
+            next[id] = expectedShare;
             changed = true;
           }
         });
@@ -3411,18 +3516,6 @@ function ExpenseFormModal({
     }
   }, [totalAmount, splitMode, Object.keys(beneficiaries).length]);
 
-  useEffect(() => {
-    if (category === "payment") {
-      const pId = Object.keys(payers)[0];
-      const bId = Object.keys(beneficiaries)[0];
-      if (pId && payers[pId] !== totalAmount) {
-        setPayers({ [pId]: totalAmount });
-      }
-      if (bId && beneficiaries[bId] !== totalAmount) {
-        setBeneficiaries({ [bId]: totalAmount });
-      }
-    }
-  }, [totalAmount, category, Object.keys(payers)[0], Object.keys(beneficiaries)[0]]);
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -3695,18 +3788,34 @@ function ExpenseFormModal({
         className="bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-[40px] w-full max-w-lg p-6 md:p-8 relative shrink-0"
       >
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-black uppercase tracking-tighter">
-            {category === "payment" ? "Direct Payment" : "Expense Entry"}
-          </h2>
+          <div className="flex flex-col gap-3">
+            <h2 className="text-2xl font-black uppercase tracking-tighter">
+              {category === "payment" ? "Direct Payment" : "Expense Entry"}
+            </h2>
+            <div className={`flex bg-[var(--bg-main)] rounded-full p-1 border border-[var(--border-color)] self-start ${isReadOnly ? 'opacity-50 pointer-events-none' : ''}`}>
+              <button
+                onClick={() => setCategory('expense')}
+                className={`px-4 py-1.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all ${category === 'expense' ? 'bg-purple-500 text-white shadow-md' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
+              >
+                Expense
+              </button>
+              <button
+                onClick={() => setCategory('payment')}
+                className={`px-4 py-1.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all ${category === 'payment' ? 'bg-purple-500 text-white shadow-md' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
+              >
+                P2P Transfer
+              </button>
+            </div>
+          </div>
           <button
             onClick={onClose}
-            className="p-2 bg-[var(--bg-main)] rounded-full text-[var(--text-muted)] hover:text-white"
+            className="p-2 bg-[var(--bg-main)] rounded-full text-[var(--text-muted)] hover:text-white self-start"
           >
             <Plus className="rotate-45" />
           </button>
         </div>
 
-        <div className="space-y-8">
+        <fieldset disabled={isReadOnly} className="space-y-8">
           <section className="space-y-4">
             <div className="bg-purple-500 rounded-[32px] p-6 lg:p-8 text-white shadow-2xl shadow-purple-500/30 overflow-hidden relative mb-4">
               <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/10 rounded-full blur-3xl" />
@@ -3844,47 +3953,7 @@ function ExpenseFormModal({
             </div>
           </section>
 
-          {category === 'payment' ? (
-            <section className="relative z-20 space-y-4 rounded-[24px] border border-[var(--border-color)] p-4 bg-[var(--bg-main)]">
-              <div className="flex items-center gap-3 mb-1">
-                <h3 className="text-xs uppercase font-black text-purple-500 tracking-widest">Money From (Payer)</h3>
-              </div>
-              <select 
-                className="w-full bg-[var(--bg-surface)] border border-[var(--border-color)] px-4 py-3 rounded-2xl text-xs font-black hover:border-purple-500 transition-colors shadow-sm outline-none appearance-none"
-                value={Object.keys(payers)[0] || ""}
-                onChange={(e) => {
-                  const pId = e.target.value;
-                  if (pId) {
-                    setPayers({ [pId]: Number(amount) || 0 });
-                    if (beneficiaries[pId] !== undefined) setBeneficiaries({});
-                  }
-                }}
-              >
-                <option value="" disabled>Select Payer...</option>
-                {members.map(m => <option key={m.id} value={m.id} disabled={beneficiaries[m.id] !== undefined}>{m.name}</option>)}
-              </select>
-
-              <div className="flex items-center gap-3 mb-1 mt-4">
-                <h3 className="text-xs uppercase font-black text-purple-500 tracking-widest">Money To (Receiver)</h3>
-              </div>
-              <select 
-                className="w-full bg-[var(--bg-surface)] border border-[var(--border-color)] px-4 py-3 rounded-2xl text-xs font-black hover:border-purple-500 transition-colors shadow-sm outline-none appearance-none"
-                value={Object.keys(beneficiaries)[0] || ""}
-                onChange={(e) => {
-                  const bId = e.target.value;
-                  if (bId) {
-                    setBeneficiaries({ [bId]: Number(amount) || 0 });
-                    if (payers[bId] !== undefined) setPayers({});
-                  }
-                }}
-              >
-                <option value="" disabled>Select Receiver...</option>
-                {members.map(m => <option key={m.id} value={m.id} disabled={payers[m.id] !== undefined}>{m.name}</option>)}
-              </select>
-            </section>
-          ) : (
-            <>
-              <section className="relative z-20">
+          <section className="relative z-20">
                 {openDropdown && <div className="fixed inset-0 z-10" onClick={() => setOpenDropdown(null)} />}
                 
                 <div className="flex justify-between items-center mb-3">
@@ -3894,7 +3963,16 @@ function ExpenseFormModal({
                       {Math.abs(paidDeficit) > 0.05 ? `-${paidDeficit.toFixed(2)}` : 'Balanced'}
                     </span>
                   </div>
-                  <button onClick={distributeEquallyPaid} className="secondary-button text-[10px] py-1 px-2.5">Auto-Fill</button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    distributeEquallyPaid();
+                  }}
+                  className="secondary-button text-[10px] py-1 px-2.5"
+                >
+                  Auto-Fill
+                </button>
                 </div>
 
                 <div className="relative z-20">
@@ -3942,7 +4020,7 @@ function ExpenseFormModal({
                             value={payers[m.id] || ''} 
                             onChange={e => setPayers({...payers, [m.id]: parseFloat(e.target.value) || 0})} 
                           />
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-purple-300 font-black tracking-tighter">৳</span>
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-purple-300 font-black tracking-tighter">{getCurrencySymbol(currency)}</span>
                         </div>
                       </div>
                     ))}
@@ -4012,7 +4090,7 @@ function ExpenseFormModal({
                                 value={beneficiaries[m.id] || ''} 
                                 onChange={e => setBeneficiaries({...beneficiaries, [m.id]: parseFloat(e.target.value) || 0})} 
                               />
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-purple-300 tracking-tighter">{splitMode === 'percent' ? '%' : '৳'}</span>
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-purple-300 tracking-tighter">{splitMode === 'percent' ? '%' : getCurrencySymbol(currency)}</span>
                             </div>
                           )}
                         </div>
@@ -4021,8 +4099,6 @@ function ExpenseFormModal({
                   </div>
                 )}
               </section>
-            </>
-          )}
 
           <footer className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -4076,18 +4152,18 @@ function ExpenseFormModal({
               onChange={(e) => setNotes(e.target.value)}
             />
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               {expense?.id && (
                 <button
                    type="button"
                    onClick={handleDownloadPDF}
                    title="Download PDF"
-                   className="flex-[0.5] flex items-center justify-center py-5 bg-sky-500/10 hover:bg-sky-500 text-sky-500 hover:text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all"
+                   className="flex-[0.5] flex items-center justify-center py-4 bg-sky-500/10 hover:bg-sky-500 text-sky-500 hover:text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all"
                 >
                    <Download size={16} />
                 </button>
               )}
-              {expense?.id &&
+              {(!isReadOnly && expense?.id) &&
                 onDelete &&
                 (showDeleteConfirm ? (
                   <button
@@ -4097,9 +4173,9 @@ function ExpenseFormModal({
                       onDelete(expense.id);
                       onClose();
                     }}
-                    className="flex-1 py-5 bg-red-600 border border-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)] rounded-2xl font-black text-xs uppercase tracking-widest transition-all"
+                    className="flex-[0.5] py-4 bg-red-600 border border-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)] rounded-2xl font-black text-xs uppercase tracking-widest transition-all"
                   >
-                    Confirm?
+                    Conf?
                   </button>
                 ) : (
                   <button
@@ -4109,29 +4185,39 @@ function ExpenseFormModal({
                       setShowDeleteConfirm(true);
                       setTimeout(() => setShowDeleteConfirm(false), 3000);
                     }}
-                    className="flex-1 py-5 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all"
+                    className="flex-[0.5] py-4 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all"
                   >
-                    Delete
+                    Del
                   </button>
                 ))}
-              <div className="flex-[2] flex flex-col items-center">
+              {!isReadOnly ? (
+                <div className="flex-[2] flex flex-col items-center">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleValidateBeforeConfirm();
+                    }}
+                    className="w-full py-4 bg-purple-500 hover:bg-purple-600 rounded-full font-bold text-sm tracking-widest shadow-2xl shadow-purple-500/20 disabled:opacity-30 disabled:grayscale active:scale-95 transition-all text-white uppercase"
+                  >
+                    Save
+                  </button>
+                  {validationError && (
+                    <p className="text-[10px] text-red-500 font-bold uppercase tracking-widest mt-2 px-2 text-center absolute -bottom-6">{validationError}</p>
+                  )}
+                </div>
+              ) : (
                 <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleValidateBeforeConfirm();
-                  }}
-                  className="w-full py-4 bg-purple-500 hover:bg-purple-600 rounded-full font-bold text-sm tracking-widest shadow-2xl shadow-purple-500/20 disabled:opacity-30 disabled:grayscale active:scale-95 transition-all text-white uppercase mt-4"
-                >
-                  Save
+                    type="button"
+                    onClick={onClose}
+                    className="flex-[2] py-4 bg-[var(--bg-main)] hover:bg-[var(--border-color)] rounded-full font-bold text-sm tracking-widest shadow-xl font-black transition-all uppercase text-[var(--text-main)] border border-[var(--border-color)]"
+                  >
+                    Close
                 </button>
-                {validationError && (
-                  <p className="text-[10px] text-red-500 font-bold uppercase tracking-widest mt-2 px-2 text-center">{validationError}</p>
-                )}
-              </div>
+              )}
             </div>
           </footer>
-        </div>
+        </fieldset>
       </motion.div>
     </div>
   );
