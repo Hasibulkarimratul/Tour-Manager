@@ -35,7 +35,12 @@ import {
   Settings,
   MessageCircle,
   Info,
+  AlertCircle,
+  QrCode,
+  ScanQrCode,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
+import QRScanner from "./components/QRScanner";
 import React, {
   useRef,
   useState,
@@ -251,6 +256,7 @@ function MemberCard({
   onDelete,
   isAdmin,
   isMemberAdmin,
+  isSelf,
 }: {
   key?: React.Key;
   m: Member;
@@ -260,6 +266,7 @@ function MemberCard({
   onDelete: (id: string, e?: React.MouseEvent) => void;
   isAdmin: boolean;
   isMemberAdmin: boolean;
+  isSelf?: boolean;
 }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const hasExpenses = activeTour.expenses.some(
@@ -286,7 +293,7 @@ function MemberCard({
         id={`member-${m.id}`}
         className={`item-card rounded-2xl p-4 flex justify-between items-center group hover:border-purple-500/30 transition-all cursor-pointer relative overflow-hidden ${highlightId === m.id ? "ring-2 ring-purple-500 bg-purple-500/10 scale-105" : ""}`}
       >
-        <div className="flex-1 truncate relative z-10" onClick={() => isAdmin && onEdit(m)}>
+        <div className="flex-1 truncate relative z-10" onClick={() => (isAdmin || isSelf) && onEdit(m)}>
           <div className="flex items-center gap-1.5">
             <p className="font-black text-xs truncate uppercase tracking-tighter">
               {m.name}
@@ -543,11 +550,14 @@ export default function App() {
   const { user, displayName, AuthModal } = useFirebaseAuth();
   // --- State ---
     const [joinTourId, setJoinTourId] = useState("");
-    const [activeTourId, setActiveTourId] = useState<string | null>(null);
+    const [activeTourId, setActiveTourId] = useState<string | null>(() => {
+      return localStorage.getItem("tourvault_last_active_tour");
+    });
 
   const [activeTab, setActiveTab] = useState<
     "members" | "expenses" | "balances" | "insights" | "media"
   >("expenses");
+  const [expenseFilterMode, setExpenseFilterMode] = useState<"actual" | "p2p">("actual");
   const [appSettings, setAppSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem("tourvault_settings");
     if (saved) return JSON.parse(saved);
@@ -561,6 +571,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("tourvault_settings", JSON.stringify(appSettings));
   }, [appSettings]);
+
+  useEffect(() => {
+    if (activeTourId) {
+      localStorage.setItem("tourvault_last_active_tour", activeTourId);
+    } else {
+      localStorage.removeItem("tourvault_last_active_tour");
+    }
+  }, [activeTourId]);
 
   const theme = appSettings.theme;
   const setTheme = (newTheme: "light" | "dark") => {
@@ -653,10 +671,12 @@ export default function App() {
   const [undoStack, setUndoStack] = useState<any[]>([]);
   const [redoStack, setRedoStack] = useState<any[]>([]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [permissionsError, setPermissionsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeTourId) {
       setTrashExpenses([]);
+      setPermissionsError(null);
       return;
     }
     const unsubTour = onSnapshot(doc(db, 'tours', activeTourId), (docSnap) => {
@@ -668,18 +688,24 @@ export default function App() {
                 setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData, expenses: t.expenses || [] } : t));
             }
         } else if (!(docSnap as any).metadata.hasPendingWrites && !(docSnap as any).metadata.fromCache) {
-            // Only kick out and delete if the server confirmed it doesn't exist
-            // This prevents kickout during the local doc creation delay when offline
             setActiveTourId(null);
             setTours(prev => prev.filter(t => t.id !== activeTourId));
         }
+    }, (error) => {
+        console.error("Tour snapshot error:", error);
+        if (error.code === 'permission-denied') setPermissionsError("You don't have permission to view this trip.");
     });
+    
     const unsubExpenses = onSnapshot(collection(db, 'tours', activeTourId, 'expenses'), (snap) => {
+        setPermissionsError(null);
         const exps = snap.docs.map(d => d.data() as Expense);
         const validExps = exps.filter(e => !e.deletedAt);
         const deletedExps = exps.filter(e => e.deletedAt);
         setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, expenses: validExps } : t));
         setTrashExpenses(deletedExps);
+    }, (error) => {
+        console.error("Expenses snapshot error:", error);
+        if (error.code === 'permission-denied') setPermissionsError("Permission Denied: Your Firestore backend rules are blocking you from reading the expenses. Please update your Firebase Rules to allow public/member reading.");
     });
     return () => { unsubTour(); unsubExpenses(); };
   }, [activeTourId]);
@@ -733,6 +759,8 @@ export default function App() {
   const [showTrash, setShowTrash] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showQRCode, setShowQRCode] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState<
     Expense | "new_expense" | "new_payment" | null
@@ -771,7 +799,17 @@ export default function App() {
   }, [commonEvents]);
 
   // --- Computed ---
-  const activeTour = tours.find(t => t.id === activeTourId);
+  const activeTour = tours.find(t => t.id === activeTourId) || {
+    id: activeTourId || "",
+    name: "Loading...",
+    date: Date.now().toString(),
+    country: "",
+    town: "",
+    currency: "USD",
+    members: [],
+    expenses: [],
+    adminId: "",
+  } as Tour;
   const isProfileClaimed = activeTourId ? (claimedProfiles[activeTourId] && activeTour?.members.some(m => m.id === claimedProfiles[activeTourId])) : true;
   const isAdmin = activeTour ? activeTour.adminId === user?.uid : false;
   const balances = activeTour
@@ -784,6 +822,35 @@ export default function App() {
     if (activeTour) {
       updateActiveTour({ ...activeTour, name, date, country, town, currency });
       setShowEditTour(false);
+    }
+  };
+
+  const handleJoinTour = async (tourId: string) => {
+    if (tourId.length === 6) {
+      const docSnap = await getDoc(doc(db, 'tours', tourId));
+      if (docSnap.exists()) {
+        const cloudTour = docSnap.data() as Tour;
+        if (cloudTour.deletedAt) {
+          alert("Invalid Join Code! No trip found with this ID.");
+          setJoinTourId("");
+          return;
+        }
+        setTours(prev => {
+          if (!prev.find(t => t.id === cloudTour.id)) {
+            return [...prev, { ...cloudTour, expenses: [] }];
+          }
+          return prev;
+        });
+        setActiveTourId(tourId);
+        setJoinedTourIds(prev => {
+          if (!prev.includes(tourId)) return [...prev, tourId];
+          return prev;
+        });
+        setJoinTourId("");
+      } else {
+        alert("Invalid Join Code! No trip found with this ID.");
+        setJoinTourId("");
+      }
     }
   };
 
@@ -844,11 +911,21 @@ export default function App() {
         setTours(prev => prev.filter(t => t.id !== id));
         setJoinedTourIds(prev => prev.filter(x => x !== id));
     }
+    setClaimedProfiles(prev => {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+    });
     if (activeTourId === id) setActiveTourId(null);
   };
 
   const handleRestoreTour = async (id: string) => {
     if (!user) return;
+    const tour = trashTours.find(t => t.id === id);
+    if (tour && tour.adminId !== user.uid) {
+       alert("Only the admin can restore this trip.");
+       return;
+    }
     try {
       updateDoc(doc(db, 'tours', id), { deletedAt: deleteField() }).catch(e => console.error(e));
     } catch (e) {
@@ -859,13 +936,26 @@ export default function App() {
 
   const handlePermanentDeleteTour = async (id: string) => {
     if (!user) return;
+    const tour = trashTours.find(t => t.id === id);
+    if (tour && tour.adminId !== user.uid) {
+       alert("Only the admin can permanently delete this trip.");
+       return;
+    }
     deleteDoc(doc(db, 'tours', id)).catch(e => console.error(e));
   };
 
   const handleRestoreExpense = async (id: string) => {
     if (!user || !activeTourId) return;
+    const exp = trashExpenses.find(x => x.id === id);
+    if (!exp) return;
+    const activeTour = tours.find(t => t.id === activeTourId);
+    if (activeTour?.adminId !== user.uid && exp.deletedById !== user.uid) {
+       alert("Only the admin or the member who deleted this item can restore it.");
+       return;
+    }
+
     try {
-      updateDoc(doc(db, 'tours', activeTourId, 'expenses', id), { deletedAt: deleteField() }).catch(e => console.error(e));
+      updateDoc(doc(db, 'tours', activeTourId, 'expenses', id), { deletedAt: deleteField(), deletedById: deleteField() }).catch(e => console.error(e));
     } catch (e) {
       console.error(e);
       alert("Failed to restore entry");
@@ -874,6 +964,11 @@ export default function App() {
 
   const handlePermanentDeleteExpense = async (id: string) => {
     if (!user || !activeTourId) return;
+    const tour = tours.find(t => t.id === activeTourId);
+    if (tour?.adminId !== user.uid) {
+       alert("For security reasons, only the trip administrator can permanently delete items from the trash.");
+       return;
+    }
     deleteDoc(doc(db, 'tours', activeTourId, 'expenses', id)).catch(e => console.error(e));
   };
 
@@ -882,7 +977,22 @@ export default function App() {
     context?: { tab?: string; highlightId?: string },
   ) => {
     if (!activeTourId || activeTourId !== updated.id) return;
-    if (updated.adminId === user?.uid) {
+
+    const currentTour = tours.find(t => t.id === activeTourId);
+    if (currentTour) {
+      updated.members.forEach(newM => {
+         const oldM = currentTour.members.find(m => m.id === newM.id);
+         if (oldM && oldM.name !== newM.name) {
+             updated.expenses.forEach(exp => {
+                 if (exp.creatorName === oldM.name) {
+                     updateDoc(doc(db, 'tours', activeTourId, 'expenses', exp.id), { creatorName: newM.name }).catch(console.error);
+                 }
+             });
+         }
+      });
+    }
+
+    if (updated.adminId === user?.uid || claimedProfiles[activeTourId]) {
        const tourDocRef = doc(db, 'tours', updated.id);
        const { expenses, ...tourData } = updated;
        
@@ -931,11 +1041,12 @@ export default function App() {
   const handleSaveExpense = async (expense: Expense) => {
     if (!activeTour) return;
     const id = expense.id || doc(collection(db, 'tours', activeTour.id, 'expenses')).id;
+    const currentMemberName = claimedProfiles[activeTour.id] ? activeTour.members.find(m => m.id === claimedProfiles[activeTour.id])?.name : undefined;
     const newExp = {
          ...expense,
          id,
          creatorId: expense.creatorId || user?.uid,
-         creatorName: expense.creatorName || displayName
+         creatorName: expense.creatorName || currentMemberName || displayName
     };
 
     stripUndefined(newExp);
@@ -957,9 +1068,16 @@ export default function App() {
   const handleDeleteExpense = async (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (!activeTour) return;
+    const exp = activeTour.expenses.find(x => x.id === id);
+    if (!exp) return;
+    if (activeTour.adminId !== user?.uid && exp.creatorId !== user?.uid) {
+       alert("You can only delete items that you created.");
+       return;
+    }
+
     setUndoStack(prev => [...prev, { action: 'delete_expense', tourId: activeTour.id, expenseId: id }]);
     setRedoStack([]);
-    updateDoc(doc(db, 'tours', activeTour.id, 'expenses', id), { deletedAt: Date.now() }).catch(console.error);
+    updateDoc(doc(db, 'tours', activeTour.id, 'expenses', id), { deletedAt: Date.now(), deletedById: user?.uid }).catch(console.error);
     setActiveTab("expenses");
   };
 
@@ -987,6 +1105,41 @@ export default function App() {
   return (
     <div className="min-h-screen selection:bg-purple-500/30">
       <AuthModal />
+      
+      {permissionsError && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[var(--bg-main)] max-w-sm w-full rounded-3xl p-6 shadow-2xl border-2 border-red-500/50">
+            <h3 className="text-red-500 font-black uppercase text-lg tracking-widest flex items-center gap-2 mb-3">
+              <AlertCircle size={24} /> Access Blocked
+            </h3>
+            <p className="font-bold text-[var(--text-main)] mb-4">{permissionsError}</p>
+            <div className="text-[10px] uppercase font-bold text-[var(--text-muted)] p-4 bg-[var(--bg-surface)] rounded-2xl leading-relaxed border border-[var(--border-color)]">
+              <p className="mb-2 text-red-400">Firebase Rules must be updated by the Project Owner via Firebase Console:</p>
+              <code className="text-[var(--text-main)] lowercase whitespace-pre-wrap select-all block bg-[var(--bg-main)] p-3 rounded-xl border border-[var(--border-color)] font-mono">{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /tours/{tourId} {
+      allow read, write: if true;
+      match /expenses/{expenseId} {
+        allow read, write: if true;
+      }
+    }
+  }
+}`}</code>
+            </div>
+            <button
+              onClick={() => {
+                setPermissionsError(null);
+                setActiveTourId(null);
+              }}
+              className="mt-6 w-full py-3 bg-[var(--bg-surface)] hover:bg-[var(--border-color)] rounded-xl font-black uppercase tracking-widest text-[var(--text-main)] transition-colors border border-[var(--border-color)]"
+            >
+              Return Home
+            </button>
+          </motion.div>
+        </div>
+      )}
+
       <AnimatePresence mode="wait">
         {!activeTourId ? (
           <motion.div
@@ -1046,44 +1199,25 @@ export default function App() {
               <div className="flex gap-2 mb-6">
                 <input 
                   type="text" 
-                  placeholder="JOIN CLOUD TOUR (6-CHAR ID)" 
+                  placeholder="Join by CoDE" 
                   value={joinTourId} 
                   onChange={e => setJoinTourId(e.target.value.toUpperCase())}
-                  className="flex-1 bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 py-3 font-mono font-bold outline-none uppercase text-center tracking-widest placeholder:opacity-50"
+                  className="flex-1 min-w-0 bg-[var(--bg-main)] border border-[var(--border-color)] rounded-xl px-3 py-2 text-sm font-mono font-bold outline-none uppercase text-center tracking-widest placeholder:opacity-50"
                   maxLength={6}
                 />
                 <button 
-                  onClick={async () => {
-                    if (joinTourId.length === 6) {
-                      const docSnap = await getDoc(doc(db, 'tours', joinTourId));
-                      if (docSnap.exists()) {
-                        const cloudTour = docSnap.data() as Tour;
-                        if (cloudTour.deletedAt) {
-                          alert("Invalid Join Code! No trip found with this ID.");
-                          setJoinTourId("");
-                          return;
-                        }
-                        setTours(prev => {
-                          if (!prev.find(t => t.id === cloudTour.id)) {
-                            return [...prev, { ...cloudTour, expenses: [] }];
-                          }
-                          return prev;
-                        });
-                        setActiveTourId(joinTourId);
-                        setJoinedTourIds(prev => {
-                          if (!prev.includes(joinTourId)) return [...prev, joinTourId];
-                          return prev;
-                        });
-                      } else {
-                        alert("Invalid Join Code! No trip found with this ID.");
-                        setJoinTourId("");
-                      }
-                    }
-                  }}
+                  onClick={() => handleJoinTour(joinTourId)}
                   disabled={joinTourId.length !== 6}
-                  className="px-6 bg-[var(--bg-main)] hover:bg-slate-200 dark:hover:bg-slate-800 border border-[var(--border-color)] rounded-2xl font-black transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-[var(--bg-main)] hover:bg-slate-200 dark:hover:bg-slate-800 border border-[var(--border-color)] rounded-xl text-sm font-black transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                 >
                   JOIN
+                </button>
+                <button 
+                  onClick={() => setShowScanner(true)}
+                  className="p-2 text-[var(--text-muted)] hover:text-purple-500 bg-[var(--bg-surface)] rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-all shadow-sm flex items-center justify-center shrink-0"
+                  title="Scan QR Code"
+                >
+                  <ScanQrCode size={20} />
                 </button>
               </div>
 
@@ -1124,11 +1258,6 @@ export default function App() {
               </button>
             )}
           </motion.div>
-        ) : !activeTour ? (
-          <div className="min-h-screen flex flex-col items-center justify-center text-purple-500 font-black uppercase tracking-widest text-lg animate-pulse gap-4">
-             <div className="w-8 h-8 rounded-full border-4 border-purple-500 border-t-transparent animate-spin"></div>
-             Syncing...
-          </div>
         ) : (
           <motion.div
             key="dashboard"
@@ -1177,15 +1306,24 @@ export default function App() {
                   </h1>
                   <div className="flex items-center gap-3 mt-2 flex-wrap">
                     {true && (
-                      <div 
-                        onClick={() => {
-                          if (activeTour?.id) {
-                            navigator.clipboard.writeText(activeTour.id);
-                            alert("Join Code copied to clipboard!");
-                          }
-                        }}
-                        className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[#25D366] bg-[#25D366]/10 px-2 py-1.5 rounded-md border border-[#25D366]/20 select-all cursor-pointer" title="Copy to share">
-                         JOIN CODE: {activeTour?.id}
+                      <div className="flex items-center gap-2">
+                        <div 
+                          onClick={() => {
+                            if (activeTour?.id) {
+                              navigator.clipboard.writeText(activeTour.id);
+                              alert("Join Code copied to clipboard!");
+                            }
+                          }}
+                          className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[#25D366] bg-[#25D366]/10 px-2 py-1.5 rounded-md border border-[#25D366]/20 select-all cursor-pointer" title="Copy to share">
+                           JOIN CODE: {activeTour?.id}
+                        </div>
+                        <button
+                          onClick={() => setShowQRCode(true)}
+                          className="p-1.5 text-[var(--text-muted)] hover:text-[#25D366] bg-[var(--bg-surface)] rounded-md border border-[var(--border-color)] hover:border-[#25D366] transition-all"
+                          title="Show QR Code"
+                        >
+                          <QrCode size={14} />
+                        </button>
                       </div>
                     )}
                     <button
@@ -1267,6 +1405,7 @@ export default function App() {
                   highlightId={highlightId}
                   appSettings={appSettings}
                   isAdmin={isAdmin}
+                  claimedMemberId={claimedProfiles[activeTourId!]}
                 />
               )}
               {activeTab === "expenses" && (
@@ -1278,6 +1417,8 @@ export default function App() {
                   onDelete={handleDeleteExpense}
                   isAdmin={isAdmin}
                   currentUserId={user?.uid}
+                  filterMode={expenseFilterMode}
+                  onFilterChange={setExpenseFilterMode}
                 />
               )}
               {activeTab === "balances" && (
@@ -1298,16 +1439,22 @@ export default function App() {
             {activeTab === "expenses" && (
               <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center justify-center gap-1.5 z-40 bg-[var(--bg-surface)] p-1.5 rounded-[20px] shadow-[0_10px_30px_rgba(0,0,0,0.1)] border border-[var(--border-color)]">
                 <button
-                  onClick={() => setShowExpenseForm("new_expense")}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-[14px] flex items-center gap-1.5 transition-all active:scale-95 font-bold shadow-md shadow-purple-500/20 text-xs tracking-wide"
+                  onClick={() => {
+                    setExpenseFilterMode("actual");
+                    setShowExpenseForm("new_expense");
+                  }}
+                  className={`${expenseFilterMode === "actual" ? "bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/20" : "bg-transparent hover:bg-slate-200 dark:hover:bg-slate-800 text-[var(--text-muted)] dark:text-[var(--text-main)]"} px-4 py-2 rounded-[14px] flex items-center gap-1.5 transition-all active:scale-95 font-bold text-xs tracking-wide`}
                   id="fab-add-expense"
                 >
                   <Plus size={14} />
                   Add Expense
                 </button>
                 <button
-                  onClick={() => setShowExpenseForm("new_payment")}
-                  className="bg-transparent hover:bg-slate-200 dark:hover:bg-slate-800 dark:hover:bg-slate-800 text-[var(--text-muted)] dark:text-[var(--text-main)] px-4 py-2 rounded-[14px] flex items-center gap-1.5 transition-all active:scale-95 font-bold text-xs tracking-wide"
+                  onClick={() => {
+                    setExpenseFilterMode("p2p");
+                    setShowExpenseForm("new_payment");
+                  }}
+                  className={`${expenseFilterMode === "p2p" ? "bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-500/20" : "bg-transparent hover:bg-slate-200 dark:hover:bg-slate-800 text-[var(--text-muted)] dark:text-[var(--text-main)]"} px-4 py-2 rounded-[14px] flex items-center gap-1.5 transition-all active:scale-95 font-bold text-xs tracking-wide`}
                   id="fab-add-payment"
                 >
                   <ArrowRightLeft size={14} />
@@ -1323,6 +1470,55 @@ export default function App() {
 
       {/* Modals */}
       <AnimatePresence>
+        {showScanner && (
+          <QRScanner 
+            onClose={() => setShowScanner(false)} 
+            onScan={(text) => {
+               handleJoinTour(text);
+               setShowScanner(false);
+            }} 
+          />
+        )}
+        {showQRCode && activeTour && (
+          <div className="modal-overlay z-[120]" onClick={() => setShowQRCode(false)}>
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[var(--bg-surface)] border border-[var(--border-color)] p-8 rounded-[40px] w-full max-w-sm shadow-2xl relative flex flex-col items-center justify-center text-center"
+            >
+              <button
+                onClick={() => setShowQRCode(false)}
+                className="absolute top-4 right-4 p-2 bg-[var(--bg-main)] rounded-full text-[var(--text-muted)] hover:text-[var(--text-main)]"
+              >
+                <X size={16} />
+              </button>
+              <h3 className="text-xl font-black uppercase tracking-tight mb-2 text-[var(--text-main)]">
+                Scan to Join
+              </h3>
+              <p className="text-sm font-bold text-[var(--text-muted)] mt-1 mb-6">
+                {activeTour.name}
+              </p>
+              
+              <div className="bg-white p-4 rounded-3xl shadow-lg border border-slate-200">
+                <QRCodeSVG 
+                  value={activeTour.id} 
+                  size={200}
+                  level="H"
+                  includeMargin={true}
+                  className="rounded-xl"
+                />
+              </div>
+
+              <div className="mt-8 mb-4 w-full">
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#25D366] bg-[#25D366]/10 px-4 py-2 rounded-xl border border-[#25D366]/20 select-all mx-auto">
+                  JOIN CODE: {activeTour.id}
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
         {showAddTour && (
           <AddTourModal
             onClose={() => setShowAddTour(false)}
@@ -1416,7 +1612,12 @@ export default function App() {
                
                // 4. Background Sync (No 'await', fire and forget)
                updateDoc(doc(db, 'tours', activeTour.id), { members: updatedMembers })
-                 .catch(console.error);
+                 .catch((error: any) => {
+                   console.error("Update tour failed:", error);
+                   if (error.code === 'permission-denied') {
+                     setPermissionsError("Permission Denied: Your Firestore backend rules are blocking you from joining this trip.");
+                   }
+                 });
             }}
           />
         )}
@@ -2224,6 +2425,7 @@ function MemberView({
   highlightId,
   appSettings,
   isAdmin,
+  claimedMemberId,
 }: {
   activeTour: Tour;
   onAdd: (n: string, p: string, a?: string, o?: string, ni?: string, b?: string, w?: string) => void;
@@ -2231,6 +2433,7 @@ function MemberView({
   highlightId?: string | null;
   appSettings: AppSettings;
   isAdmin: boolean;
+  claimedMemberId?: string;
 }) {
   const [name, setName] = useState("");
   const [phonePrefix, setPhonePrefix] = useState(() => getPhonePrefix(appSettings.region));
@@ -2346,7 +2549,7 @@ function MemberView({
         </button>
       </div>
 
-      {isAdmin && (<div className="item-card rounded-[32px] p-6 shadow-xl border-purple-500/20">
+      {(isAdmin || (editingMemberId && editingMemberId === claimedMemberId)) && (<div className="item-card rounded-[32px] p-6 shadow-xl border-purple-500/20">
         <h3 className="text-xs font-bold uppercase tracking-widest text-purple-500 mb-4">
           {editingMemberId ? "Edit Person Details" : "Add Person"}
         </h3>
@@ -2524,6 +2727,7 @@ function MemberView({
               onDelete={removeMember}
               isAdmin={isAdmin}
               isMemberAdmin={m.id === activeTour.adminId}
+              isSelf={m.id === claimedMemberId}
             />
           ))}
         </div>
@@ -2593,6 +2797,11 @@ function ExpenseCard({
           <h4 className="font-black text-sm sm:text-base group-hover:text-purple-600 transition-colors tracking-tight leading-snug break-words">
             {exp.name}
           </h4>
+          {exp.notes && (
+            <p className="text-xs text-[var(--text-muted)] mt-1.5 line-clamp-2 break-words">
+              {exp.notes}
+            </p>
+          )}
         </div>
         
         <div className="mb-3">
@@ -2637,6 +2846,8 @@ function ExpenseView({
   highlightId,
   isAdmin,
   currentUserId,
+  filterMode,
+  onFilterChange,
 }: {
   activeTour: Tour;
   onAdd: () => void;
@@ -2645,9 +2856,10 @@ function ExpenseView({
   highlightId: string | null;
   isAdmin: boolean;
   currentUserId?: string;
+  filterMode: "actual" | "p2p";
+  onFilterChange: (mode: "actual" | "p2p") => void;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterMode, setFilterMode] = useState<"actual" | "p2p">("actual");
   const [filterPayerId, setFilterPayerId] = useState("all");
   const [filterDate, setFilterDate] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
@@ -2683,13 +2895,13 @@ function ExpenseView({
       <div className="space-y-4">
         <div className="flex bg-[var(--bg-surface)] p-1 rounded-2xl border border-[var(--border-color)]">
           <button
-            onClick={() => setFilterMode("actual")}
+            onClick={() => onFilterChange("actual")}
             className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${filterMode === "actual" ? "bg-purple-500 text-white shadow-lg" : "text-[var(--text-muted)] hover:text-purple-500"}`}
           >
             Actual Costs
           </button>
           <button
-            onClick={() => setFilterMode("p2p")}
+            onClick={() => onFilterChange("p2p")}
             className={`flex-1 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all ${filterMode === "p2p" ? "bg-purple-500 text-white shadow-lg" : "text-[var(--text-muted)] hover:text-purple-500"}`}
           >
             P2P Payments
@@ -3469,16 +3681,23 @@ function ExpenseFormModal({
         next[m.id] = totalAmount / members.length;
       });
       setPayers(next);
+      if (category === "payment") {
+        setBeneficiaries({});
+      }
     }
   };
 
+  const availableBeneficiaries = category === "payment"
+    ? members.filter((m) => payers[m.id] === undefined)
+    : members;
+
   const selectAllBeneficiaries = () => {
-    const allSelected = Object.keys(beneficiaries).length === members.length;
+    const allSelected = Object.keys(beneficiaries).length === availableBeneficiaries.length && availableBeneficiaries.length > 0;
     if (allSelected) {
       setBeneficiaries({});
     } else {
       const newBens: { [id: string]: number } = {};
-      members.forEach((m) => {
+      availableBeneficiaries.forEach((m) => {
         newBens[m.id] = 0;
       });
       setBeneficiaries(newBens);
@@ -3649,7 +3868,7 @@ function ExpenseFormModal({
     doc.save(`${expName.replace(/[^a-z0-9]/gi, '_')}.pdf`);
   };
 
-  const isAllSelected = Object.keys(beneficiaries).length === members.length;
+  const isAllSelected = Object.keys(beneficiaries).length === availableBeneficiaries.length && availableBeneficiaries.length > 0;
 
   if (showConfirmation) {
     return (
@@ -3800,7 +4019,16 @@ function ExpenseFormModal({
                 Expense
               </button>
               <button
-                onClick={() => setCategory('payment')}
+                onClick={() => {
+                  setCategory('payment');
+                  setBeneficiaries(prev => {
+                    const newBens = { ...prev };
+                    Object.keys(payers).forEach(payerId => {
+                      delete newBens[payerId];
+                    });
+                    return newBens;
+                  });
+                }}
                 className={`px-4 py-1.5 rounded-full text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all ${category === 'payment' ? 'bg-purple-500 text-white shadow-md' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'}`}
               >
                 P2P Transfer
@@ -3995,8 +4223,18 @@ function ExpenseFormModal({
                           <label key={m.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[var(--bg-surface)] rounded-xl transition-colors">
                             <input type="checkbox" checked={paying} onChange={(e) => {
                                const next = {...payers};
-                               if (paying) delete next[m.id];
-                               else next[m.id] = 0;
+                               if (paying) {
+                                 delete next[m.id];
+                               } else {
+                                 next[m.id] = 0;
+                                 if (category === "payment") {
+                                   setBeneficiaries(prev => {
+                                      const newBens = { ...prev };
+                                      delete newBens[m.id];
+                                      return newBens;
+                                   });
+                                 }
+                               }
                                setPayers(next);
                             }} className="w-4 h-4 accent-purple-500" />
                             <span className={`text-xs font-black ${paying ? 'text-purple-500' : 'text-[var(--text-main)]'}`}>{m.name}</span>
@@ -4059,7 +4297,7 @@ function ExpenseFormModal({
                         <input type="checkbox" checked={isAllSelected} onChange={selectAllBeneficiaries} className="w-4 h-4 accent-purple-500" />
                         Select All
                       </label>
-                      {members.map(m => {
+                      {availableBeneficiaries.map(m => {
                         const isBen = beneficiaries[m.id] !== undefined;
                         return (
                           <label key={m.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-[var(--bg-surface)] rounded-xl transition-colors">
@@ -4076,7 +4314,7 @@ function ExpenseFormModal({
 
                 {Object.keys(beneficiaries).length > 0 && (
                   <div className="mt-3 space-y-2 relative z-10 max-h-72 overflow-y-auto pr-1 scrollbar-hide">
-                    {members.filter(m => beneficiaries[m.id] !== undefined).map(m => (
+                    {availableBeneficiaries.filter(m => beneficiaries[m.id] !== undefined).map(m => (
                       <div key={m.id} className="flex items-center gap-3 bg-[var(--bg-surface)] p-2 rounded-2xl border border-[var(--border-color)] shadow-sm focus-within:border-purple-500/50 transition-colors">
                         <span className={`text-xs font-black truncate flex-1 px-2 ${splitMode === 'equal' ? 'text-[var(--text-main)]' : 'text-purple-500'}`}>{m.name.split(' ')[0]}</span>
                         <div className="relative w-1/2 flex justify-end">
