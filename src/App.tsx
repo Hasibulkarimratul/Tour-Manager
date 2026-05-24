@@ -1317,7 +1317,7 @@ service cloud.firestore {
                               setTimeout(() => setCopied(false), 2000);
                             }
                           }}
-                          className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-widest ${copied ? "bg-[#25D366] text-white" : "text-[#25D366] bg-[#25D366]/10"} px-2 py-1.5 rounded-md border border-[#25D366]/20 select-all cursor-pointer`} title="Copy to share">
+                          className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-widest ${copied ? "bg-[#25D366] text-white" : "text-[#25D366] bg-[#25D366]/10"} px-2 py-1.5 rounded-md border border-[#25D366]/20 select-none cursor-pointer`} title="Copy to share">
                            {copied ? (
                              <>
                                <Check size={12} />
@@ -1522,7 +1522,7 @@ service cloud.firestore {
               </div>
 
               <div className="mt-8 mb-4 w-full">
-                <p className="text-[10px] font-black uppercase tracking-widest text-[#25D366] bg-[#25D366]/10 px-4 py-2 rounded-xl border border-[#25D366]/20 select-all mx-auto">
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#25D366] bg-[#25D366]/10 px-4 py-2 rounded-xl border border-[#25D366]/20 select-none mx-auto">
                   JOIN CODE: {activeTour.id}
                 </p>
               </div>
