@@ -38,6 +38,7 @@ import {
   AlertCircle,
   QrCode,
   ScanQrCode,
+  Check,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import QRScanner from "./components/QRScanner";
@@ -758,6 +759,7 @@ export default function App() {
   const [showEditTour, setShowEditTour] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showQRCode, setShowQRCode] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
@@ -1202,7 +1204,7 @@ service cloud.firestore {
                   placeholder="Join by CoDE" 
                   value={joinTourId} 
                   onChange={e => setJoinTourId(e.target.value.toUpperCase())}
-                  className="flex-1 min-w-0 bg-[var(--bg-main)] border border-[var(--border-color)] rounded-xl px-3 py-2 text-sm font-mono font-bold outline-none uppercase text-center tracking-widest placeholder:opacity-50"
+                  className="flex-1 min-w-0 text-[var(--text-main)] bg-[var(--bg-main)] border border-[var(--border-color)] rounded-xl px-3 py-2 text-sm font-mono font-bold outline-none uppercase text-center tracking-widest placeholder:opacity-50"
                   maxLength={6}
                 />
                 <button 
@@ -1311,11 +1313,19 @@ service cloud.firestore {
                           onClick={() => {
                             if (activeTour?.id) {
                               navigator.clipboard.writeText(activeTour.id);
-                              alert("Join Code copied to clipboard!");
+                              setCopied(true);
+                              setTimeout(() => setCopied(false), 2000);
                             }
                           }}
-                          className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[#25D366] bg-[#25D366]/10 px-2 py-1.5 rounded-md border border-[#25D366]/20 select-all cursor-pointer" title="Copy to share">
-                           JOIN CODE: {activeTour?.id}
+                          className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-widest ${copied ? "bg-[#25D366] text-white" : "text-[#25D366] bg-[#25D366]/10"} px-2 py-1.5 rounded-md border border-[#25D366]/20 select-all cursor-pointer`} title="Copy to share">
+                           {copied ? (
+                             <>
+                               <Check size={12} />
+                               COPIED!
+                             </>
+                           ) : (
+                             `JOIN CODE: ${activeTour?.id}`
+                           )}
                         </div>
                         <button
                           onClick={() => setShowQRCode(true)}
@@ -1951,6 +1961,7 @@ function TrashModal({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<'tours' | 'expenses'>('tours');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   
   useEffect(() => {
     if (trashTours.length === 0 && trashExpenses.length > 0) {
@@ -2018,8 +2029,18 @@ function TrashModal({
                      <button onClick={() => isExpense ? onRestoreExpense(item.id) : onRestoreTour(item.id)} className="p-2 sm:px-3 bg-[var(--bg-surface)] text-[var(--text-main)] hover:bg-purple-500 hover:text-white rounded-xl transition-colors font-bold text-xs uppercase tracking-widest border border-[var(--border-color)] hover:border-transparent">
                        Restore
                      </button>
-                     <button onClick={() => { if(confirm("Permanently delete?")) isExpense ? onPermanentDeleteExpense(item.id) : onPermanentDeleteTour(item.id) }} className="p-2 sm:px-3 bg-[var(--bg-surface)] text-[var(--text-main)] hover:bg-red-500 hover:text-white rounded-xl transition-colors font-bold text-xs uppercase tracking-widest border border-[var(--border-color)] hover:border-transparent">
-                       Delete
+                     <button 
+                       onClick={() => { 
+                         if (confirmDeleteId !== item.id) {
+                           setConfirmDeleteId(item.id);
+                           setTimeout(() => setConfirmDeleteId(null), 3000);
+                         } else {
+                           isExpense ? onPermanentDeleteExpense(item.id) : onPermanentDeleteTour(item.id);
+                         }
+                       }} 
+                       className={`p-2 sm:px-3 rounded-xl transition-colors font-bold text-xs uppercase tracking-widest border ${confirmDeleteId === item.id ? 'bg-red-600 text-white border-transparent' : 'bg-[var(--bg-surface)] text-[var(--text-main)] hover:bg-red-500 hover:text-white border-[var(--border-color)] hover:border-transparent'}`}
+                     >
+                       {confirmDeleteId === item.id ? 'SURE?' : 'Delete'}
                      </button>
                    </div>
                 </div>
@@ -2754,87 +2775,111 @@ function ExpenseCard({
   isAdmin: boolean;
   currentUserId?: string;
 }) {
+  const [showConfirm, setShowConfirm] = React.useState(false);
   const isHighlighted = highlightId === exp.id;
   const isValid = isExpenseValid(exp, activeTour.members);
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm("Sure about deleting this log?")) {
-      onDelete(exp.id);
-    }
+    setShowConfirm(true);
   };
 
   return (
-    <div
-      id={`expense-${exp.id}`}
-      className={`group relative bg-[var(--bg-surface)] border rounded-[24px] p-5 hover:border-purple-500/50 hover:shadow-xl transition-all cursor-pointer overflow-hidden ${isValid ? "border-[var(--border-color)]" : "border-red-500 border-2 bg-red-500/5"} ${isHighlighted && isValid ? "ring-2 ring-purple-500 scale-102 bg-purple-50/10" : ""}`}
-      onClick={() => onEdit(exp)}
-    >
-      {!isValid && (
-        <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-xl z-30 uppercase tracking-widest">
-          Invalid/Deleted Member
-        </div>
-      )}
-      {exp.creatorName && isValid && (
-        <div className="absolute top-0 right-0 bg-purple-500/10 text-purple-600 text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-20 uppercase tracking-widest border-b border-l border-purple-500/20">
-          Entry by {exp.creatorName}
-        </div>
-      )}
-      
-      {/* Delete button on hover */}
-      {isValid && (isAdmin || exp.creatorId === currentUserId) && (
-        <button
-          onClick={handleDelete}
-          className="absolute top-3 right-3 p-2.5 rounded-2xl bg-red-100 dark:bg-red-900/30 text-red-500 hover:bg-red-500 hover:text-white transition-all z-40 opacity-0 group-hover:opacity-100 shadow-sm"
-          title="Delete Entry"
-        >
-          <Trash2 size={14} />
-        </button>
-      )}
-
-      <div className={`flex flex-col relative z-20 ${!isValid ? 'opacity-60 grayscale' : ''}`}>
-        <div className="w-full pr-6 md:pr-8 mb-2">
-          <h4 className="font-black text-sm sm:text-base group-hover:text-purple-600 transition-colors tracking-tight leading-snug break-words">
-            {exp.name}
-          </h4>
-          {exp.notes && (
-            <p className="text-xs text-[var(--text-muted)] mt-1.5 line-clamp-2 break-words">
-              {exp.notes}
-            </p>
-          )}
-        </div>
-        
-        <div className="mb-3">
-          <p className="text-lg sm:text-xl font-black text-purple-600 tracking-tighter leading-none">
-            {formatCurrency(exp.totalAmount, activeTour?.currency)}
-          </p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[10px] sm:text-xs font-bold text-[var(--text-muted)] opacity-90 pt-3 border-t border-[var(--border-color)]">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Calendar size={12} className="text-purple-500 shrink-0" />
-            <span className="truncate">
-              {new Date(
-                (exp as any).dateTime || (exp as any).date,
-              ).toLocaleString("en-US", {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
+    <>
+      <div
+        id={`expense-${exp.id}`}
+        className={`group relative bg-[var(--bg-surface)] border rounded-[24px] p-5 hover:border-purple-500/50 hover:shadow-xl transition-all cursor-pointer overflow-hidden ${isValid ? "border-[var(--border-color)]" : "border-red-500 border-2 bg-red-500/5"} ${isHighlighted && isValid ? "ring-2 ring-purple-500 scale-102 bg-purple-50/10" : ""}`}
+        onClick={() => onEdit(exp)}
+      >
+        {!isValid && (
+          <div className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-xl z-30 uppercase tracking-widest">
+            Invalid/Deleted Member
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-[0_0_5px_rgba(168,85,247,0.5)]" />
-            <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-main)] truncate max-w-[100px]">
-              {activeTour.members
-                .find((m) => exp.payers[m.id])
-                ?.name.split(" ")[0] || "System"}
+        )}
+        {exp.creatorName && isValid && (
+          <div className="absolute top-0 right-0 bg-purple-500/10 text-purple-600 text-[8px] font-black px-1.5 py-0.5 rounded-bl-lg z-20 uppercase tracking-widest border-b border-l border-purple-500/20">
+            Entry by {exp.creatorName}
+          </div>
+        )}
+        
+        {/* Delete button on hover */}
+        {isValid && (isAdmin || exp.creatorId === currentUserId) && (
+          <button
+            onClick={handleDelete}
+            className="absolute top-3 right-3 p-2.5 rounded-2xl bg-red-100 dark:bg-red-900/30 text-red-500 hover:bg-red-500 hover:text-white transition-all z-40 opacity-0 group-hover:opacity-100 shadow-sm"
+            title="Delete Entry"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+
+        <div className={`flex flex-col relative z-20 ${!isValid ? 'opacity-60 grayscale' : ''}`}>
+          <div className="w-full pr-6 md:pr-8 mb-2">
+            <h4 className="font-black text-sm sm:text-base group-hover:text-purple-600 transition-colors tracking-tight leading-snug break-words">
+              {exp.name}
+            </h4>
+            {exp.notes && (
+              <p className="text-xs text-[var(--text-muted)] mt-1.5 line-clamp-2 break-words">
+                {exp.notes}
+              </p>
+            )}
+          </div>
+          
+          <div className="mb-3">
+            <p className="text-lg sm:text-xl font-black text-purple-600 tracking-tighter leading-none">
+              {formatCurrency(exp.totalAmount, activeTour?.currency)}
             </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-[10px] sm:text-xs font-bold text-[var(--text-muted)] opacity-90 pt-3 border-t border-[var(--border-color)]">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Calendar size={12} className="text-purple-500 shrink-0" />
+              <span className="truncate">
+                {new Date(
+                  (exp as any).dateTime || (exp as any).date,
+                ).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-[0_0_5px_rgba(168,85,247,0.5)]" />
+              <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-main)] truncate max-w-[100px]">
+                {activeTour.members
+                  .find((m) => exp.payers[m.id])
+                  ?.name.split(" ")[0] || "System"}
+              </p>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }}>
+          <div className="bg-[var(--bg-surface)] p-6 rounded-3xl w-full max-w-xs shadow-2xl border border-[var(--border-color)]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-black tracking-tight text-[var(--text-main)] mb-2">Delete this entry?</h3>
+            <p className="text-sm text-[var(--text-muted)] mb-6">This action will move the expense to the trash.</p>
+            <div className="flex gap-3">
+              <button 
+                onClick={(e) => { e.stopPropagation(); setShowConfirm(false); }} 
+                className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-[var(--text-main)] font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={(e) => { e.stopPropagation(); setShowConfirm(false); onDelete(exp.id); }} 
+                className="flex-1 px-4 py-2 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 shadow-md shadow-red-500/20 transition"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
