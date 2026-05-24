@@ -30,7 +30,7 @@ service cloud.firestore {
     match /tours/{tourId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && incoming().adminId == request.auth.uid;
-      allow update: if isSignedIn() && existing().adminId == request.auth.uid;
+      allow update: if isSignedIn();
       allow delete: if isSignedIn() && existing().adminId == request.auth.uid;
 
       match /expenses/{expenseId} {
