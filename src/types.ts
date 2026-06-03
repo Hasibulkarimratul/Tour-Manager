@@ -33,6 +33,7 @@ export interface Expense {
   creatorId?: string;
   creatorName?: string;
   deletedAt?: number;
+  deletedById?: string;
 }
 
 export interface Tour {
@@ -46,6 +47,7 @@ export interface Tour {
   members: Member[];
   expenses: Expense[];
   deletedAt?: number;
+  isArchived?: boolean;
   path?: { lat: number; lng: number; timestamp: number }[];
   adminId?: string;
 }
