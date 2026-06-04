@@ -69,21 +69,6 @@ const stripUndefined = (obj: any) => {
   return obj;
 };
 
-const mergeMembers = (docMembers: Member[], subMembers: Member[]) => {
-    const map = new Map<string, Member>();
-    docMembers.forEach(m => {
-       if (!(m as any).deletedAt) map.set(m.id, m);
-    });
-    subMembers.forEach(m => {
-       if ((m as any).deletedAt) {
-           map.delete(m.id);
-       } else {
-           map.set(m.id, m);
-       }
-    });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-};
-
 import {
   PieChart,
   Pie,
@@ -761,7 +746,7 @@ export default function App() {
             if (currentData.deletedAt) {
                 setActiveTourId(null);
             } else {
-                setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData, docMembers: currentData.members || [], expenses: t.expenses || [], members: mergeMembers(currentData.members || [], (t as any).subMembers || []) } : t));
+                setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData, expenses: t.expenses || [] } : t));
             }
         } else if (!(docSnap as any).metadata.hasPendingWrites && !(docSnap as any).metadata.fromCache) {
             setActiveTourId(null);
@@ -783,21 +768,7 @@ export default function App() {
         console.error("Expenses snapshot error:", error);
         if (error.code === 'permission-denied') setPermissionsError("Permission Denied: Your Firestore backend rules are blocking you from reading the expenses. Please update your Firebase Rules to allow public/member reading.");
     });
-    
-    const unsubMembers = onSnapshot(collection(db, 'tours', activeTourId, 'members'), (snap) => {
-        const subMems = snap.docs.map(d => d.data() as Member);
-        setTours(prev => prev.map(t => {
-            if (t.id === activeTourId) {
-                const combined = mergeMembers((t as any).docMembers || t.members || [], subMems);
-                return { ...t, subMembers: subMems, members: combined } as Tour;
-            }
-            return t;
-        }));
-    }, (error) => {
-        console.error("Members snapshot error:", error);
-    });
-    
-    return () => { unsubTour(); unsubExpenses(); unsubMembers(); };
+    return () => { unsubTour(); unsubExpenses(); };
   }, [activeTourId, user]);
 
   useEffect(() => {
@@ -966,7 +937,6 @@ export default function App() {
       }
     }
 
-    const adminMember = { id: adminUid, name: displayName || 'Admin', phoneNumber: '', address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: '' };
     const newTour: Tour = {
         id,
         name,
@@ -974,19 +944,17 @@ export default function App() {
         country,
         town,
         currency,
-        members: [adminMember],
+        members: [{ id: adminUid, name: displayName || 'Admin', phoneNumber: '', address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: '' }],
         expenses: [],
         adminId: adminUid
     };
 
     stripUndefined(newTour);
-    stripUndefined(adminMember);
 
     try {
       setTours(prev => [...prev, newTour]);
       setClaimedProfiles(prev => ({ ...prev, [id]: adminUid }));
       setDoc(doc(db, 'tours', id), newTour).catch(e => console.error(e));
-      setDoc(doc(db, 'tours', id, 'members', adminUid), adminMember).catch(e => console.error(e));
       setActiveTourId(id);
       setShowAddTour(false);
     } catch (error: any) {
@@ -1101,7 +1069,7 @@ export default function App() {
 
     if (updated.adminId === user?.uid || claimedProfiles[activeTourId]) {
        const tourDocRef = doc(db, 'tours', updated.id);
-       const { expenses, members, docMembers, subMembers, ...tourData } = updated as any;
+       const { expenses, ...tourData } = updated;
        
        stripUndefined(tourData);
 
@@ -1136,32 +1104,13 @@ export default function App() {
       bkashNumber,
       whatsappNumber,
     };
-    stripUndefined(newMember);
-    setDoc(doc(db, 'tours', activeTour.id, 'members', newMember.id), newMember).catch(e => console.error(e));
-    setHighlightId(newMember.id);
-  };
-
-  const handleUpdateMember = (member: Member) => {
-    if (!activeTour) return;
-    stripUndefined(member);
-    updateDoc(doc(db, 'tours', activeTour.id, 'members', member.id), member as any).catch(async (e) => {
-       if (e.code === 'not-found') {
-           await setDoc(doc(db, 'tours', activeTour.id, 'members', member.id), member);
-       } else {
-           console.error(e);
-       }
-    });
-    setHighlightId(member.id);
-  };
-
-  const handleDeleteMember = (id: string) => {
-    if (!activeTour) return;
-    // Tombstone it so merge knows it's deleted if it was in docMembers
-    updateDoc(doc(db, 'tours', activeTour.id, 'members', id), { deletedAt: Date.now() }).catch(async (e) => {
-       if (e.code === 'not-found') {
-           await setDoc(doc(db, 'tours', activeTour.id, 'members', id), { deletedAt: Date.now() });
-       }
-    });
+    updateActiveTour(
+      {
+        ...activeTour,
+        members: [...activeTour.members, newMember],
+      },
+      { tab: "members", highlightId: newMember.id },
+    );
   };
 
   const handleSaveExpense = async (expense: Expense) => {
@@ -1593,8 +1542,7 @@ service cloud.firestore {
                 <MemberView
                   activeTour={activeTour!}
                   onAdd={handleAddMember}
-                  onUpdateMember={handleUpdateMember}
-                  onDeleteMember={handleDeleteMember}
+                  onUpdate={updateActiveTour}
                   highlightId={highlightId}
                   appSettings={appSettings}
                   isAdmin={isAdmin}
@@ -1793,16 +1741,18 @@ service cloud.firestore {
                   address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: ''
                };
                
-               stripUndefined(newMember);
-
-               // 2. Optimistic Local Update is unnecessary with snapshot listeners, but we can do it if we want!
-               // Actually the onSnapshot on subcollection handles it, let's keep it simple.
+               const updatedMembers = [...activeTour.members, newMember];
+               
+               // 2. Optimistic Local Update (Instant UI change)
+               setTours(prev => prev.map(t => 
+                 t.id === activeTour.id ? { ...t, members: updatedMembers } : t
+               ));
                
                // 3. Claim Profile (Instantly dismisses the Gate)
                setClaimedProfiles(prev => ({ ...prev, [activeTour.id]: newMemberId }));
                
-               // 4. Background Sync 
-               setDoc(doc(db, 'tours', activeTour.id, 'members', newMemberId), newMember)
+               // 4. Background Sync (No 'await', fire and forget)
+               updateDoc(doc(db, 'tours', activeTour.id), { members: updatedMembers })
                  .catch((error: any) => {
                    console.error("Update tour failed:", error);
                    if (error.code === 'permission-denied') {
@@ -2623,8 +2573,7 @@ function AddTourModal({
 function MemberView({
   activeTour,
   onAdd,
-  onUpdateMember,
-  onDeleteMember,
+  onUpdate,
   highlightId,
   appSettings,
   isAdmin,
@@ -2632,8 +2581,7 @@ function MemberView({
 }: {
   activeTour: Tour;
   onAdd: (n: string, p: string, a?: string, o?: string, ni?: string, b?: string, w?: string) => void;
-  onUpdateMember: (m: Member) => void;
-  onDeleteMember: (id: string) => void;
+  onUpdate: (t: Tour, ctx?: { tab?: string; highlightId?: string }) => void;
   highlightId?: string | null;
   appSettings: AppSettings;
   isAdmin: boolean;
@@ -2670,16 +2618,26 @@ function MemberView({
     setPhoneError("");
 
     if (editingMemberId) {
-      onUpdateMember({
-        id: editingMemberId,
-        name,
-        phoneNumber: phone,
-        address,
-        occupation,
-        nid,
-        bkashNumber: bkash,
-        whatsappNumber: whatsapp,
-      });
+      onUpdate(
+        {
+          ...activeTour,
+          members: activeTour.members.map((m) =>
+            m.id === editingMemberId
+              ? {
+                  ...m,
+                  name,
+                  phoneNumber: phone,
+                  address,
+                  occupation,
+                  nid,
+                  bkashNumber: bkash,
+                  whatsappNumber: whatsapp,
+                }
+              : m,
+          ),
+        },
+        { tab: "members" },
+      );
       setEditingMemberId(null);
     } else {
       onAdd(name, phone, address, occupation, nid, bkash, whatsapp);
@@ -2714,7 +2672,13 @@ function MemberView({
 
   const removeMember = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    onDeleteMember(id);
+    onUpdate(
+      {
+        ...activeTour,
+        members: activeTour.members.filter((m) => m.id !== id),
+      },
+      { tab: "members", highlightId: id },
+    );
   };
 
   return (
