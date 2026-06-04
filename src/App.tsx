@@ -47,6 +47,7 @@ import React, {
   useState,
   useEffect,
   useMemo,
+  useCallback,
   type MouseEvent,
   type ChangeEvent,
 } from "react";
@@ -805,7 +806,7 @@ export default function App() {
     if (redoStack.length === 0) return;
     const nextAction = redoStack[redoStack.length - 1];
     setRedoStack((prev) => prev.slice(0, -1));
-    setUndoStack((prev) => [...prev, nextAction]);
+    setUndoStack((prev) => [...prev.slice(-19), nextAction]);
 
     if (nextAction.action === 'add_expense') {
        updateDoc(doc(db, 'tours', nextAction.tourId, 'expenses', nextAction.expenseId), { deletedAt: deleteField() }).catch(console.error);
@@ -850,7 +851,6 @@ export default function App() {
   
   
   useEffect(() => {
-    localStorage.setItem("tourvault_theme", theme);
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
@@ -862,17 +862,7 @@ export default function App() {
   }, [commonEvents]);
 
   // --- Computed ---
-  const activeTour = tours.find(t => t.id === activeTourId) || {
-    id: activeTourId || "",
-    name: "Loading...",
-    date: Date.now().toString(),
-    country: "",
-    town: "",
-    currency: "USD",
-    members: [],
-    expenses: [],
-    adminId: "",
-  } as Tour;
+  const activeTour = tours.find(t => t.id === activeTourId);
   const isProfileClaimed = activeTourId ? (claimedProfiles[activeTourId] && activeTour?.members.some(m => m.id === claimedProfiles[activeTourId])) : true;
   const isAdmin = activeTour ? activeTour.adminId === user?.uid : false;
   const balances = activeTour
@@ -881,6 +871,11 @@ export default function App() {
   const settlements: Transaction[] = activeTour ? simplifyDebts(balances) : [];
 
   // --- Handlers ---
+  const handleQRScan = useCallback((text: string) => {
+    handleJoinTour(text);
+    setShowScanner(false);
+  }, []);
+
   const handleEditTourSave = (name: string, date: string, country: string, town: string, currency: string) => {
     if (activeTour) {
       updateActiveTour({ ...activeTour, name, date, country, town, currency });
@@ -893,8 +888,8 @@ export default function App() {
       const docSnap = await getDoc(doc(db, 'tours', tourId));
       if (docSnap.exists()) {
         const cloudTour = docSnap.data() as Tour;
-        if (cloudTour.deletedAt) {
-          alert("Invalid Join Code! No trip found with this ID.");
+        if (cloudTour.deletedAt || cloudTour.isArchived) {
+          alert("Invalid Join Code! No active trip found with this ID.");
           setJoinTourId("");
           return;
         }
@@ -1128,9 +1123,9 @@ export default function App() {
 
     const existingExpense = activeTour.expenses.find(e => e.id === id);
     if (existingExpense) {
-      setUndoStack(prev => [...prev, { action: 'update_expense', tourId: activeTour.id, expenseId: id, previousData: existingExpense, newData: newExp }]);
+      setUndoStack(prev => [...prev.slice(-19), { action: 'update_expense', tourId: activeTour.id, expenseId: id, previousData: existingExpense, newData: newExp }]);
     } else {
-      setUndoStack(prev => [...prev, { action: 'add_expense', tourId: activeTour.id, expenseId: id }]);
+      setUndoStack(prev => [...prev.slice(-19), { action: 'add_expense', tourId: activeTour.id, expenseId: id }]);
     }
     setRedoStack([]);
 
@@ -1150,7 +1145,7 @@ export default function App() {
        return;
     }
 
-    setUndoStack(prev => [...prev, { action: 'delete_expense', tourId: activeTour.id, expenseId: id }]);
+    setUndoStack(prev => [...prev.slice(-19), { action: 'delete_expense', tourId: activeTour.id, expenseId: id }]);
     setRedoStack([]);
     updateDoc(doc(db, 'tours', activeTour.id, 'expenses', id), { deletedAt: Date.now(), deletedById: user?.uid }).catch(console.error);
     setActiveTab("expenses");
@@ -1381,16 +1376,28 @@ service cloud.firestore {
               })()}
             </div>
 
-            {true && (
-              <button
-                onClick={() => setShowAddTour(true)}
-                className="accent-button fixed bottom-8 right-8 w-16 h-16 rounded-full flex items-center justify-center shadow-2xl z-40"
-                id="fab-add-tour"
-              >
-                <Plus size={32} />
-              </button>
-            )}
+            <button
+              onClick={() => setShowAddTour(true)}
+              className="accent-button fixed bottom-8 right-8 w-16 h-16 rounded-full flex items-center justify-center shadow-2xl z-40"
+              id="fab-add-tour"
+            >
+              <Plus size={32} />
+            </button>
           </motion.div>
+        ) : activeTourId && !activeTour ? (
+          <motion.div
+             key="syncing"
+             initial={{ opacity: 0 }}
+             animate={{ opacity: 1 }}
+             exit={{ opacity: 0 }}
+             className="min-h-screen flex items-center justify-center p-6"
+           >
+             <div className="flex flex-col items-center gap-4 text-[var(--text-muted)] text-center">
+                 <div className="w-8 h-8 rounded-full border-4 border-current border-t-transparent animate-spin" />
+                 <p className="font-black tracking-widest uppercase text-sm">Syncing Data...</p>
+                 <button onClick={() => setActiveTourId(null)} className="mt-4 px-4 py-2 border border-current rounded-xl hover:bg-[var(--text-muted)] hover:text-[var(--bg-main)] transition-colors text-xs font-black uppercase tracking-widest">Cancel</button>
+             </div>
+           </motion.div>
         ) : (
           <motion.div
             key="dashboard"
@@ -1614,10 +1621,7 @@ service cloud.firestore {
         {showScanner && (
           <QRScanner 
             onClose={() => setShowScanner(false)} 
-            onScan={(text) => {
-               handleJoinTour(text);
-               setShowScanner(false);
-            }} 
+            onScan={handleQRScan} 
           />
         )}
         {showQRCode && activeTour && (
@@ -3865,9 +3869,11 @@ function ExpenseFormModal({
     if (isAllChecked) {
       setPayers({});
     } else {
+      const baseShare = Math.floor((totalAmount / members.length) * 100) / 100;
+      const remainder = Number((totalAmount - (baseShare * members.length)).toFixed(2));
       const next: { [id: string]: number } = {};
-      members.forEach((m) => {
-        next[m.id] = totalAmount / members.length;
+      members.forEach((m, index) => {
+        next[m.id] = index === 0 ? Number((baseShare + remainder).toFixed(2)) : baseShare;
       });
       setPayers(next);
       if (category === "payment") {
@@ -4299,16 +4305,16 @@ function ExpenseFormModal({
                       </button>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {commonEvents.map((ev) => (
+                      {commonEvents.map((ev, index) => (
                         <div
-                          key={ev}
+                          key={`${ev}-${index}`}
                           className="flex items-center gap-1 bg-[var(--bg-surface)] px-2 py-1 rounded-lg text-xs text-[var(--text-muted)]"
                         >
                           {ev}
                           <button
                             onClick={() =>
                               setCommonEvents(
-                                commonEvents.filter((x) => x !== ev),
+                                commonEvents.filter((_, i) => i !== index),
                               )
                             }
                             className="text-red-500 hover:scale-110"
@@ -4346,7 +4352,7 @@ function ExpenseFormModal({
             <div>
               <div className="flex justify-between items-center mb-1 pr-1">
                 <label className="text-xs uppercase font-black text-[var(--text-muted)] tracking-widest pl-1">
-                  Amount (BDT)
+                  Amount ({currency})
                 </label>
                 <button
                   onClick={() => setShowCalculator(true)}
