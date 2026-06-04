@@ -69,6 +69,21 @@ const stripUndefined = (obj: any) => {
   return obj;
 };
 
+const mergeMembers = (docMembers: Member[], subMembers: Member[]) => {
+    const map = new Map<string, Member>();
+    docMembers.forEach(m => {
+       if (!(m as any).deletedAt) map.set(m.id, m);
+    });
+    subMembers.forEach(m => {
+       if ((m as any).deletedAt) {
+           map.delete(m.id);
+       } else {
+           map.set(m.id, m);
+       }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+};
+
 import {
   PieChart,
   Pie,
@@ -603,6 +618,12 @@ function WhatsAppGroupModal({
 export default function App() {
   const { user, displayName, AuthModal } = useFirebaseAuth();
   // --- State ---
+  const [isHydrated, setIsHydrated] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setIsHydrated(true), 50);
+    return () => clearTimeout(t);
+  }, []);
+  
     const [joinTourId, setJoinTourId] = useState("");
     const [activeTourId, setActiveTourId] = useState<string | null>(() => {
       return localStorage.getItem("tourvault_last_active_tour");
@@ -740,7 +761,7 @@ export default function App() {
             if (currentData.deletedAt) {
                 setActiveTourId(null);
             } else {
-                setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData, expenses: t.expenses || [] } : t));
+                setTours(prev => prev.map(t => t.id === activeTourId ? { ...t, ...currentData, docMembers: currentData.members || [], expenses: t.expenses || [], members: mergeMembers(currentData.members || [], (t as any).subMembers || []) } : t));
             }
         } else if (!(docSnap as any).metadata.hasPendingWrites && !(docSnap as any).metadata.fromCache) {
             setActiveTourId(null);
@@ -762,7 +783,21 @@ export default function App() {
         console.error("Expenses snapshot error:", error);
         if (error.code === 'permission-denied') setPermissionsError("Permission Denied: Your Firestore backend rules are blocking you from reading the expenses. Please update your Firebase Rules to allow public/member reading.");
     });
-    return () => { unsubTour(); unsubExpenses(); };
+    
+    const unsubMembers = onSnapshot(collection(db, 'tours', activeTourId, 'members'), (snap) => {
+        const subMems = snap.docs.map(d => d.data() as Member);
+        setTours(prev => prev.map(t => {
+            if (t.id === activeTourId) {
+                const combined = mergeMembers((t as any).docMembers || t.members || [], subMems);
+                return { ...t, subMembers: subMems, members: combined } as Tour;
+            }
+            return t;
+        }));
+    }, (error) => {
+        console.error("Members snapshot error:", error);
+    });
+    
+    return () => { unsubTour(); unsubExpenses(); unsubMembers(); };
   }, [activeTourId, user]);
 
   useEffect(() => {
@@ -931,6 +966,7 @@ export default function App() {
       }
     }
 
+    const adminMember = { id: adminUid, name: displayName || 'Admin', phoneNumber: '', address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: '' };
     const newTour: Tour = {
         id,
         name,
@@ -938,17 +974,19 @@ export default function App() {
         country,
         town,
         currency,
-        members: [{ id: adminUid, name: displayName || 'Admin', phoneNumber: '', address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: '' }],
+        members: [adminMember],
         expenses: [],
         adminId: adminUid
     };
 
     stripUndefined(newTour);
+    stripUndefined(adminMember);
 
     try {
       setTours(prev => [...prev, newTour]);
       setClaimedProfiles(prev => ({ ...prev, [id]: adminUid }));
       setDoc(doc(db, 'tours', id), newTour).catch(e => console.error(e));
+      setDoc(doc(db, 'tours', id, 'members', adminUid), adminMember).catch(e => console.error(e));
       setActiveTourId(id);
       setShowAddTour(false);
     } catch (error: any) {
@@ -1063,7 +1101,7 @@ export default function App() {
 
     if (updated.adminId === user?.uid || claimedProfiles[activeTourId]) {
        const tourDocRef = doc(db, 'tours', updated.id);
-       const { expenses, ...tourData } = updated;
+       const { expenses, members, docMembers, subMembers, ...tourData } = updated as any;
        
        stripUndefined(tourData);
 
@@ -1098,13 +1136,32 @@ export default function App() {
       bkashNumber,
       whatsappNumber,
     };
-    updateActiveTour(
-      {
-        ...activeTour,
-        members: [...activeTour.members, newMember],
-      },
-      { tab: "members", highlightId: newMember.id },
-    );
+    stripUndefined(newMember);
+    setDoc(doc(db, 'tours', activeTour.id, 'members', newMember.id), newMember).catch(e => console.error(e));
+    setHighlightId(newMember.id);
+  };
+
+  const handleUpdateMember = (member: Member) => {
+    if (!activeTour) return;
+    stripUndefined(member);
+    updateDoc(doc(db, 'tours', activeTour.id, 'members', member.id), member as any).catch(async (e) => {
+       if (e.code === 'not-found') {
+           await setDoc(doc(db, 'tours', activeTour.id, 'members', member.id), member);
+       } else {
+           console.error(e);
+       }
+    });
+    setHighlightId(member.id);
+  };
+
+  const handleDeleteMember = (id: string) => {
+    if (!activeTour) return;
+    // Tombstone it so merge knows it's deleted if it was in docMembers
+    updateDoc(doc(db, 'tours', activeTour.id, 'members', id), { deletedAt: Date.now() }).catch(async (e) => {
+       if (e.code === 'not-found') {
+           await setDoc(doc(db, 'tours', activeTour.id, 'members', id), { deletedAt: Date.now() });
+       }
+    });
   };
 
   const handleSaveExpense = async (expense: Expense) => {
@@ -1171,6 +1228,16 @@ export default function App() {
   };
 
   // --- Main Render ---
+  if (!isHydrated) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-main)] flex items-center justify-center transition-opacity duration-300">
+        <h1 className="text-3xl font-black tracking-tighter text-purple-500 animate-pulse">
+          Tour Manager
+        </h1>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen selection:bg-purple-500/30">
       <AuthModal />
@@ -1526,7 +1593,8 @@ service cloud.firestore {
                 <MemberView
                   activeTour={activeTour!}
                   onAdd={handleAddMember}
-                  onUpdate={updateActiveTour}
+                  onUpdateMember={handleUpdateMember}
+                  onDeleteMember={handleDeleteMember}
                   highlightId={highlightId}
                   appSettings={appSettings}
                   isAdmin={isAdmin}
@@ -1725,18 +1793,16 @@ service cloud.firestore {
                   address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: ''
                };
                
-               const updatedMembers = [...activeTour.members, newMember];
-               
-               // 2. Optimistic Local Update (Instant UI change)
-               setTours(prev => prev.map(t => 
-                 t.id === activeTour.id ? { ...t, members: updatedMembers } : t
-               ));
+               stripUndefined(newMember);
+
+               // 2. Optimistic Local Update is unnecessary with snapshot listeners, but we can do it if we want!
+               // Actually the onSnapshot on subcollection handles it, let's keep it simple.
                
                // 3. Claim Profile (Instantly dismisses the Gate)
                setClaimedProfiles(prev => ({ ...prev, [activeTour.id]: newMemberId }));
                
-               // 4. Background Sync (No 'await', fire and forget)
-               updateDoc(doc(db, 'tours', activeTour.id), { members: updatedMembers })
+               // 4. Background Sync 
+               setDoc(doc(db, 'tours', activeTour.id, 'members', newMemberId), newMember)
                  .catch((error: any) => {
                    console.error("Update tour failed:", error);
                    if (error.code === 'permission-denied') {
@@ -2557,7 +2623,8 @@ function AddTourModal({
 function MemberView({
   activeTour,
   onAdd,
-  onUpdate,
+  onUpdateMember,
+  onDeleteMember,
   highlightId,
   appSettings,
   isAdmin,
@@ -2565,7 +2632,8 @@ function MemberView({
 }: {
   activeTour: Tour;
   onAdd: (n: string, p: string, a?: string, o?: string, ni?: string, b?: string, w?: string) => void;
-  onUpdate: (t: Tour, ctx?: { tab?: string; highlightId?: string }) => void;
+  onUpdateMember: (m: Member) => void;
+  onDeleteMember: (id: string) => void;
   highlightId?: string | null;
   appSettings: AppSettings;
   isAdmin: boolean;
@@ -2602,26 +2670,16 @@ function MemberView({
     setPhoneError("");
 
     if (editingMemberId) {
-      onUpdate(
-        {
-          ...activeTour,
-          members: activeTour.members.map((m) =>
-            m.id === editingMemberId
-              ? {
-                  ...m,
-                  name,
-                  phoneNumber: phone,
-                  address,
-                  occupation,
-                  nid,
-                  bkashNumber: bkash,
-                  whatsappNumber: whatsapp,
-                }
-              : m,
-          ),
-        },
-        { tab: "members" },
-      );
+      onUpdateMember({
+        id: editingMemberId,
+        name,
+        phoneNumber: phone,
+        address,
+        occupation,
+        nid,
+        bkashNumber: bkash,
+        whatsappNumber: whatsapp,
+      });
       setEditingMemberId(null);
     } else {
       onAdd(name, phone, address, occupation, nid, bkash, whatsapp);
@@ -2656,13 +2714,7 @@ function MemberView({
 
   const removeMember = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    onUpdate(
-      {
-        ...activeTour,
-        members: activeTour.members.filter((m) => m.id !== id),
-      },
-      { tab: "members", highlightId: id },
-    );
+    onDeleteMember(id);
   };
 
   return (
