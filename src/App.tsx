@@ -876,9 +876,9 @@ export default function App() {
     setShowScanner(false);
   }, []);
 
-  const handleEditTourSave = (name: string, date: string, country: string, town: string, currency: string) => {
+  const handleEditTourSave = (name: string, date: string, country: string, town: string, currency: string, budgetLimit?: number) => {
     if (activeTour) {
-      updateActiveTour({ ...activeTour, name, date, country, town, currency });
+      updateActiveTour({ ...activeTour, name, date, country, town, currency, budgetLimit });
       setShowEditTour(false);
     }
   };
@@ -912,7 +912,7 @@ export default function App() {
     }
   };
 
-  const handleAddTour = async (name: string, date: string, country: string, town: string, currency: string) => {
+  const handleAddTour = async (name: string, date: string, country: string, town: string, currency: string, budgetLimit?: number) => {
     const adminUid = user?.uid || 'local_admin_offline';
     
     let id = Array.from({length: 6}, () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Math.floor(Math.random()*36)]).join('');
@@ -939,6 +939,7 @@ export default function App() {
         country,
         town,
         currency,
+        budgetLimit,
         members: [{ id: adminUid, name: displayName || 'Admin', phoneNumber: '', address: '', occupation: '', nid: '', bkashNumber: '', whatsappNumber: '' }],
         expenses: [],
         adminId: adminUid
@@ -2026,42 +2027,21 @@ function ExportModal({
               <div className="font-bold text-xs sm:text-sm flex items-center gap-2 text-sky-500">
                  Complete Trip Report (PDF)
               </div>
-              <div className="text-[9px] sm:text-[10px] text-sky-600/70 uppercase tracking-widest mt-1">Export full trip report with images and balances to PDF</div>
-            </button>
-            <button
-              onClick={() => downloadFile(`${activeTour.name}_whole_summary.csv`, generateCSV(balances, settlements))}
-              className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
-            >
-              <div className="font-bold text-xs sm:text-sm">Whole Summary</div>
-              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">Basic member balances & debts</div>
+              <div className="text-[9px] sm:text-[10px] text-sky-600/70 uppercase tracking-widest mt-1">The full visual report with images, balances, and everything formatted nicely.</div>
             </button>
             <button
               onClick={() => downloadFile(`${activeTour.name}_detailed_breakdown.csv`, generateDetailedBreakdownCSV(activeTour, balances, settlements))}
               className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
             >
-              <div className="font-bold text-xs sm:text-sm">Detailed Breakdown</div>
-              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">Trip info, all expenses, receipts, notes, etc.</div>
+              <div className="font-bold text-xs sm:text-sm">Detailed Breakdown (CSV)</div>
+              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">All the raw transactional data (every single expense, who paid, who owes, notes, and receipts).</div>
             </button>
             <button
-              onClick={() => downloadFile(`${activeTour.name}_expenses_only.csv`, generateExpenseBreakdownCSV(activeTour.expenses, activeTour.members))}
+              onClick={() => downloadFile(`${activeTour.name}_balances_settlements.csv`, generateCSV(balances, settlements))}
               className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
             >
-              <div className="font-bold text-xs sm:text-sm">Expenses & Events Only</div>
-              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">All expenses with payers & consumers</div>
-            </button>
-            <button
-              onClick={() => downloadFile(`${activeTour.name}_receipts_summary.csv`, generateReceiptsCSV(activeTour.expenses))}
-              className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
-            >
-              <div className="font-bold text-xs sm:text-sm">Receipts Summary</div>
-              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">List of expenses with receipt status</div>
-            </button>
-            <button
-              onClick={() => downloadFile(`${activeTour.name}_debts_only.csv`, generateDebtBreakdownCSV(settlements, balances))}
-              className="w-full text-left bg-[var(--bg-surface)] p-3 sm:p-4 rounded-xl border border-[var(--border-color)] hover:border-purple-500 transition-colors"
-            >
-              <div className="font-bold text-xs sm:text-sm">Settlements & Debts</div>
-              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">Optimized payment plan between members</div>
+              <div className="font-bold text-xs sm:text-sm">Balances & Settlements (CSV)</div>
+              <div className="text-[9px] sm:text-[10px] text-[var(--text-muted)] uppercase tracking-widest mt-1">A simple list showing the final balances and the optimized payment plan for who owes whom.</div>
             </button>
           </div>
 
@@ -2439,14 +2419,15 @@ function AddTourModal({
   initialTour,
 }: {
   onClose: () => void;
-  onSave: (name: string, date: string, country: string, town: string, currency: string) => void;
-  initialTour?: { name: string; date: string; country?: string; town?: string; currency?: string; };
+  onSave: (name: string, date: string, country: string, town: string, currency: string, budgetLimit?: number) => void;
+  initialTour?: { name: string; date: string; country?: string; town?: string; currency?: string; budgetLimit?: number; };
 }) {
   const [name, setName] = useState(initialTour?.name || "");
   const [date, setDate] = useState(initialTour?.date || "");
   const [country, setCountry] = useState(initialTour?.country || "");
   const [town, setTown] = useState(initialTour?.town || "");
   const [currency, setCurrency] = useState(initialTour?.currency || "USD");
+  const [budgetLimit, setBudgetLimit] = useState(initialTour?.budgetLimit?.toString() || "");
   
   const countryCurrencyMap: Record<string, string> = {
     "Bangladesh": "BDT",
@@ -2529,25 +2510,39 @@ function AddTourModal({
               />
             </div>
           </div>
-          <div>
-            <label className="text-[10px] sm:text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
-              Currency
-            </label>
-            <select
-              className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors appearance-none text-sm sm:text-base"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-            >
-              <option value="USD">USD ($)</option>
-              <option value="EUR">EUR (€)</option>
-              <option value="GBP">GBP (£)</option>
-              <option value="BDT">BDT (৳)</option>
-              <option value="INR">INR (₹)</option>
-              <option value="AUD">AUD (A$)</option>
-              <option value="CAD">CAD (C$)</option>
-              <option value="SGD">SGD (S$)</option>
-              <option value="JPY">JPY (¥)</option>
-            </select>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-[10px] sm:text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block">
+                Currency
+              </label>
+              <select
+                className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors appearance-none text-sm sm:text-base"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+              >
+                <option value="USD">USD ($)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="GBP">GBP (£)</option>
+                <option value="BDT">BDT (৳)</option>
+                <option value="INR">INR (₹)</option>
+                <option value="AUD">AUD (A$)</option>
+                <option value="CAD">CAD (C$)</option>
+                <option value="SGD">SGD (S$)</option>
+                <option value="JPY">JPY (¥)</option>
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] sm:text-xs uppercase font-bold text-[var(--text-muted)] tracking-widest pl-1 mb-1 block" title="Per person budget limit">
+                Budget / Person
+              </label>
+              <input
+                type="number"
+                className="w-full bg-[var(--bg-main)] border border-[var(--border-color)] rounded-2xl px-4 sm:px-5 py-3 sm:py-4 focus:outline-none focus:border-purple-500 text-[var(--text-main)] transition-colors text-sm sm:text-base"
+                placeholder="Limit"
+                value={budgetLimit}
+                onChange={(e) => setBudgetLimit(e.target.value)}
+              />
+            </div>
           </div>
           
           
@@ -2563,7 +2558,7 @@ function AddTourModal({
             <button
               id="save-new-trip"
               className="flex-1 py-3 sm:py-4 bg-purple-600 hover:bg-purple-500 text-white shadow-[0_0_20px_rgba(147,51,234,0.3)] rounded-full font-black uppercase tracking-widest text-xs sm:text-sm transition-colors"
-              onClick={() => name && onSave(name, date, country, town, currency)}
+              onClick={() => name && onSave(name, date, country, town, currency, budgetLimit ? parseFloat(budgetLimit) : undefined)}
             >
               {initialTour ? "SAVE CHANGES" : "CREATE TRIP"}
             </button>
@@ -3267,8 +3262,47 @@ function InsightsView({
     }))
     .sort((a, b) => a.date - b.date);
 
+  const budgetLimitPerPerson = activeTour.budgetLimit || 0;
+  const totalTourBudget = budgetLimitPerPerson * (activeTour.members.length || 1);
+  const budgetPercentage = totalTourBudget ? Math.min((totalCost / totalTourBudget) * 100, 100) : 0;
+  const isOverBudget = totalTourBudget > 0 && totalCost > totalTourBudget;
+
   return (
     <div className="space-y-6">
+      {totalTourBudget > 0 && (
+        <div className="item-card p-6 border-purple-500/20 bg-white dark:bg-[var(--bg-surface)]">
+            <div className="flex justify-between items-end mb-2">
+              <div>
+                <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-[var(--text-muted)]">
+                  Total Budget ({formatCurrency(budgetLimitPerPerson, activeTour?.currency)} / Person)
+                </p>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <h2 className="text-2xl sm:text-3xl font-black tracking-tighter text-[var(--text-main)] truncate">
+                    {formatCurrency(totalCost, activeTour?.currency)}
+                  </h2>
+                  <span className="text-xs font-bold text-[var(--text-muted)]">
+                    / {formatCurrency(totalTourBudget, activeTour?.currency)}
+                  </span>
+                </div>
+              </div>
+              <div className={`text-xs font-black uppercase px-2 py-1 rounded-md ${isOverBudget ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'}`}>
+                {budgetPercentage.toFixed(0)}%
+              </div>
+            </div>
+            <div className="w-full bg-[var(--bg-main)] rounded-full h-3 overflow-hidden mt-4 shadow-inner">
+              <div
+                className={`h-full rounded-full transition-all duration-1000 ${isOverBudget ? 'bg-red-500' : 'bg-gradient-to-r from-purple-500 to-sky-500'}`}
+                style={{ width: `${budgetPercentage}%` }}
+              />
+            </div>
+            {isOverBudget && (
+              <p className="text-[10px] text-red-500 font-bold tracking-widest uppercase mt-3 text-center">
+                Warning: Trip has exceeded the total budget!
+              </p>
+            )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="item-card p-6 bg-purple-600 text-white relative overflow-hidden group">
           <div className="absolute -top-6 -right-6 w-24 h-24 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-700" />
@@ -3768,7 +3802,7 @@ function ExpenseFormModal({
   const initialCat = expense?.category || initialCategory || "expense";
   const [category, setCategory] = useState<"expense" | "payment">(initialCat);
   const [splitMode, setSplitMode] = useState<"equal" | "amount" | "percent">(
-    expense?.splitMode || (initialCat === "payment" ? "amount" : "equal"),
+    expense?.splitMode || "equal",
   );
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [showCalculator, setShowCalculator] = useState(false);
@@ -4248,10 +4282,10 @@ function ExpenseFormModal({
                 {Math.abs(paidDeficit) > 0.01 && (
                   <div className="mt-4 bg-white/20 backdrop-blur-md px-4 py-2 rounded-2xl inline-flex items-center gap-2">
                     <span className="text-xs font-black uppercase">
-                      Unpaid:
+                      {paidDeficit > 0 ? 'Unpaid:' : 'Overpaid:'}
                     </span>
                     <span className="font-mono text-xs font-black">
-                      {formatCurrency(paidDeficit, currency)}
+                      {formatCurrency(Math.abs(paidDeficit), currency)}
                     </span>
                   </div>
                 )}
@@ -4371,7 +4405,7 @@ function ExpenseFormModal({
             </div>
           </section>
 
-          <section className="relative z-20">
+          <section className="relative z-50">
                 {openDropdown && <div className="fixed inset-0 z-10" onClick={() => setOpenDropdown(null)} />}
                 
                 <div className="flex justify-between items-center mb-3">
@@ -4456,7 +4490,7 @@ function ExpenseFormModal({
                 )}
               </section>
 
-              <section className="relative z-10">
+              <section className="relative z-40">
                 {openDropdown === 'beneficiaries' && <div className="fixed inset-0 z-10" onClick={() => setOpenDropdown(null)} />}
                 
                 <div className="flex justify-between items-center mb-3 mt-4">
@@ -4528,7 +4562,7 @@ function ExpenseFormModal({
                 )}
               </section>
 
-          <footer className="space-y-6">
+          <footer className="relative z-0 space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs uppercase font-black text-[var(--text-muted)] tracking-[0.2em] pl-1 mb-2 block">
