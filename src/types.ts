@@ -50,6 +50,7 @@ export interface Tour {
   isArchived?: boolean;
   path?: { lat: number; lng: number; timestamp: number }[];
   adminId?: string;
+  budgetLimit?: number;
 }
 
 export interface Transaction {
